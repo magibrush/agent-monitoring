@@ -44,6 +44,8 @@ class ChatSession(Base):
     created_at: Mapped[str] = mapped_column(String(40))
     updated_at: Mapped[str] = mapped_column(String(40), index=True)
     source: Mapped[str] = mapped_column(String(50))
+    session_type: Mapped[str] = mapped_column(String(30), default="conversation", index=True)
+    parent_thread_id: Mapped[str | None] = mapped_column(String(200))
 
 
 class Event(Base):
@@ -56,6 +58,7 @@ class Event(Base):
     role: Mapped[str] = mapped_column(String(30))
     text: Mapped[str] = mapped_column(Text)
     tool_name: Mapped[str | None] = mapped_column(String(200))
+    action_category: Mapped[str] = mapped_column(String(30), default="other", index=True)
     tool_call_id: Mapped[str | None] = mapped_column(String(250), index=True)
     turn_id: Mapped[str | None] = mapped_column(String(250))
     occurred_at: Mapped[str] = mapped_column(String(40), index=True)

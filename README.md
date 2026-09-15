@@ -6,8 +6,9 @@ A local agent monitoring app: React + TypeScript frontend, Python API, and SQLit
 
 - Dashboard with activity charts, prompt/answer counts, and recorded tool-call totals.
 - Multiple named connections and independently identified chat sessions.
-- Provider, connection, time-range, and full-text search filters; sorting and pagination.
-- Select sessions to aggregate their metrics; open complete paginated conversations and tool records.
+- Connection, precise time-range, message/tool search, and action-category filters; sorting and pagination.
+- Select sessions to aggregate their metrics; explore conversations and tool records in a separate split-view Explorer.
+- Aligned action/message charts, logarithmic or linear scale, drag-to-zoom, and exact manual bucket sizes.
 - Codex Desktop local transcript watcher, with durable checkpoints, pause/resume, sync errors, and manual sync.
 - Local-only HTTP access, SQLite WAL, SQLAlchemy models, Alembic migrations, and tests.
 
@@ -59,9 +60,30 @@ Choose the actual sessions directory, not the whole home directory. Desktop prov
 
 ### Metric definitions
 
-“Questions” means user prompt messages, including requests without question marks. “Answers” means assistant messages, including commentary. “Actions” means recognized tool-call records, excluding tool outputs. Session count means sessions with observed events in the selected range. Dates are stored in UTC; charts use UTC calendar days and list timestamps use your browser locale. Session list last activity is lifetime activity, while counts follow the selected time window. The conversation viewer shows full session history.
+“Questions” means user prompt messages, including requests without question marks. “Answers” means assistant messages, including commentary. Injected setup context is excluded from these counts and preserved for inspection. “Actions” means recognized tool-call records, excluding tool outputs; these records do not prove an action succeeded. Session count means sessions with observed events in the selected range. Session list last activity is lifetime activity; message and action counts follow the selected window.
 
-Search matches session titles or message/tool text. Charts aggregate all events in matching sessions within the selected period; selecting checkboxes narrows chart totals to those sessions. A connection and provider filter combine with AND. Separate connections can intentionally contain overlapping source data.
+### Time, selection, and exploration
+
+- **Fit activity** uses the actual event timestamps of matching/selected sessions. Automatic buckets target roughly 100 points, from one minute through one year. Empty buckets show zero activity. Thirty-day and year buckets are fixed durations, not calendar month/year boundaries. Data is stored in UTC; dates and chart labels display in your browser timezone.
+- The **time-range picker** offers recent presets and precise custom start/end dates and times. The end is exclusive. A range filters sessions to those with activity in it, then limits their counts and conversation records. Presets capture a fixed window at the moment you select them.
+- **Overview checkboxes** immediately restrict the chart and totals. Changing global filters clears that selection. Drag-to-zoom and Earlier/Later change only the chart viewport. Explicit resolution is honored: ranges exceeding 600 buckets show a paged window at that resolution. The compact navigator always shows the full filtered timeline; drag its handles to resize or its middle to pan, with updates on release. Arrow keys move focused handles/windows. Manual intervals cap the selected width at 600 buckets. Full range · Auto restores the complete range and automatic buckets. Totals remain for the entire selection.
+- **Explorer** opens conversations alongside the session list; it has no aggregation checkboxes. Action counts open tool calls directly. The conversation viewer respects global time/action filters; “Show surrounding conversation” and “Full session time range” let you broaden the detail view.
+
+### Investigating activity
+
+Actions and conversation volume use aligned time axes with independent vertical axes. The default logarithmic view uses `log10(1 + count)` to retain zeros; tick labels and tooltips always show raw counts. Linear scale is available for absolute comparisons. Large volume is not a security verdict.
+
+Hover an action bar for its tool breakdown. Message bars stack user (blue) and assistant (teal) counts, with raw counts on hover. Logarithmic stacks use cumulative boundaries so totals remain correct; segment heights on this scale are not proportional shares. Click a bucket, or choose one in **Inspect**, to reveal contributing sessions. Rank by actions or messages and page through all contributors. Action ranking excludes zero-action sessions. Opening a contributor shows its records within the inspected range; surrounding context and full-session controls remain available.
+
+Historical transcripts can contain many records with nearly identical recorded timestamps. These charts reflect source timestamps; they do not reconstruct original wall-clock timing or infer that clustered records represent live activity.
+
+### Search and action filters
+
+Advanced search scope, matching mode, tool name, and internal-review options live in **More filters**. Search defaults to case-insensitive **whole word / phrase** matching in messages and session titles. For example, `dance` does not match `guidance`. Choose substring matching explicitly when wanted. Tool arguments/output and titles-only are separate searchable scopes. Results include matching excerpts; opening a result shows matching records, including records beyond the first page. “Show surrounding conversation” opens the page around the first matching record.
+
+Search chooses sessions; charts aggregate their activity, not just occurrences of the search term. Connection, date, search, and action filters combine with AND. Action filters narrow sessions to those with matching calls and count only matching calls while retaining their message totals. Action categories (including deletion-related) are text-based hints from tool names and arguments, not safety verdicts; quoted commands may match and indirect commands may be missed.
+
+Codex **guardian approval-review threads** copy parent history. They are identified from transcript provenance and hidden by default; “Include internal reviews” exposes them. Ordinary conversations with no actions remain available. The migration backfills existing records and preserves raw provider payloads and ingestion checkpoints. Separate connections can intentionally contain overlapping source data.
 
 ## Verify
 
@@ -82,6 +104,8 @@ Backend tests cover replay/restarts, partial writes, mirrored-message deduplicat
 ```text
 backend/
   connectors.py   Read-only Codex transcript collector
+  analytics.py    Shared filters, search excerpts, adaptive aggregation
+  normalization.py Context and provenance classification, action hints
   db.py           Relational models and SQLite configuration
   main.py         API and background collector
   migrations/     Versioned schema migrations
@@ -98,3 +122,9 @@ scripts/
 ## Retired integrations
 
 Claude Desktop export importing has been removed. Any previously imported records remain in the local database, but are excluded from all monitoring views and cannot be accessed through the API. Database files and local transcripts are never tracked in Git. Claude Code remains a possible future integration, covered in the design notes.
+
+### Shared chart styling
+
+`frontend/src/chartSeries.tsx` provides a fixed 10-color palette, stable categorical assignment, color keys, tooltip rows, and cumulative stacking. Tool assignments persist locally across filters, zooms, and reloads. Nine tool colors plus an overflow **Other tools** color keep the palette bounded; overflow members remain individually listed in the tooltip. Message roles have fixed blue/teal colors. Future charts can reuse the same registry namespace for matching categories.
+
+The sticky scope header includes session-type filtering (all, conversations, or subagents), totals, and an always-present Clear all button. Clear all resets scope filters, selection, and session sorting. Custom date ranges show their dates; full timestamps are available on hover.

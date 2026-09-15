@@ -7,6 +7,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from backend.db import ChatSession, Checkpoint, Connection, Event, now
+from backend.normalization import message_content, action_category, session_type
 
 MAX_RECORD_BYTES = 50 * 1024 * 1024
 
@@ -43,9 +44,11 @@ def add_event(db, session, external_id, kind, role, text, time, payload, tool_na
     if existing is not None:
         return 0
     details = payload.get("payload", payload)
-    db.add(Event(session_id=session.id, external_id=external_id, kind=kind, role=role, text=text, tool_name=tool_name, occurred_at=time, payload=payload, tool_call_id=details.get("call_id") or details.get("tool_use_id") or (details.get("id") if details.get("type") == "tool_use" else None), turn_id=details.get("turn_id")))
+    if kind == "message":
+        kind, text = message_content(text, role)
+    db.add(Event(session_id=session.id, external_id=external_id, kind=kind, role=role, text=text, tool_name=tool_name, action_category=action_category(tool_name, text) if kind == "tool_call" else "other", occurred_at=time, payload=payload, tool_call_id=details.get("call_id") or details.get("tool_use_id") or (details.get("id") if details.get("type") == "tool_use" else None), turn_id=details.get("turn_id")))
     session.updated_at = max(session.updated_at, time)
-    if session.title == "Untitled session" and role == "user" and text:
+    if session.title == "Untitled session" and kind == "message" and role == "user" and text:
         session.title = text.strip().splitlines()[0][:120]
     return 1
 
@@ -93,8 +96,13 @@ def sync_codex(db, connection):
                 raise ValueError(f"Missing session identity in {path.name}")
             checkpoint.prefix_hash = prefix
             session = get_session(db, connection, external, "Untitled session", timestamp(metadata.get("timestamp")), "desktop")
+            session.session_type = session_type(metadata)
+            session.parent_thread_id = metadata.get("parent_thread_id")
             if titles.get(external):
                 session.title = titles[external][:500]
+            elif session.title.startswith(("<", "# AGENTS.md")):
+                first_message = db.scalar(select(Event.text).where(Event.session_id == session.id, Event.kind == "message", Event.role == "user").order_by(Event.id).limit(1))
+                session.title = first_message.strip().splitlines()[0][:120] if first_message else "Untitled session"
             checkpoint.session_id = session.id
             stream.seek(checkpoint.offset)
             for _ in range(5000):

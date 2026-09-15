@@ -18,6 +18,8 @@ export interface Session {
   actions: number;
   updated_at: string;
   source: string;
+  session_type: string;
+  match: { kind: string; text: string; event_id: number | null } | null;
 }
 export interface ChatEvent {
   id: number;
@@ -26,6 +28,7 @@ export interface ChatEvent {
   text: string;
   tool_name: string | null;
   occurred_at: string;
+  action_category: string;
 }
 export interface Metrics {
   sessions: number;
@@ -33,7 +36,19 @@ export interface Metrics {
   questions: number;
   answers: number;
   actions: number;
-  daily: { day: string; role: string; kind: string; count: number }[];
+  series: {
+    time: number;
+    user: number;
+    assistant: number;
+    actions: number;
+    tools: { name: string; count: number }[];
+  }[];
+  interval_seconds: number;
+  interval_label: string;
+  interval_adjusted: boolean;
+  window_limited: boolean;
+  domain: { start: string; end: string };
+  viewport: { start: string; end: string };
   tools: { name: string; count: number }[];
 }
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
