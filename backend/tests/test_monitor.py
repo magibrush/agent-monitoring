@@ -102,7 +102,7 @@ def test_api_workflow_filters_pagination_and_origin(store, tmp_path):
     assert client.get('/api/metrics', params={'connection': 'missing'}).json()['messages'] == 0
     assert client.get('/api/metrics', params={'q': 'absent'}).json()['sessions'] == 0
     assert client.get('/api/sessions', params={'offset': 1}).json()['items'] == []
-    assert client.get(f'/api/sessions/{id_}/events', params={'q': 'workspace'}).json()['total'] == 1
+    assert client.get(f'/api/sessions/{id_}/events', params={'q': 'workspace', 'search_scope': 'all'}).json()['total'] == 1
     assert client.get(f'/api/sessions/{id_}/events', params={'offset': 1, 'limit': 1}).json()['items'][0]['role'] == 'tool'
     assert client.post('/api/connections', headers={'Origin': 'https://untrusted.example'}, json=body).status_code == 403
     assert client.get('/api/sessions/missing/events').status_code == 404

@@ -22,14 +22,16 @@ source.mkdir(parents=True, exist_ok=True)
 names = ['Repository access review', 'Refactor the event collector', 'Database migration planning', 'Review API pagination', 'Add connection health checks', 'Design the session explorer', 'Investigate ingestion delays']
 for i, title in enumerate(names):
     time = (datetime.now(timezone.utc) - timedelta(days=6-i)).isoformat()
-    records = [{'type': 'session_meta', 'payload': {'id': f'synthetic-{i}', 'originator': 'Codex Desktop', 'timestamp': time}}]
+    records = [{'type': 'session_meta', 'payload': {'id': f'synthetic-{i}', 'source': ({'subagent':{'name':'test'}} if i==0 else 'vscode'), 'originator': 'Codex Desktop', 'timestamp': time}}]
     for j in range(5):
-        for role, body in [('user', title if j == 0 else f'Please explain step {j}.'), ('assistant', 'I inspected the sample workspace. The changes are ready for review.')]:
+        for role, body in [('user', title if j == 0 else f'Please explain step {j}.'), ('assistant', ('We can dance after the review.' if i == 0 and j == 0 else 'Guidance for the sample workspace. The changes are ready for review.'))]:
             records.append({'type': 'response_item', 'payload': {'type': 'message', 'role': role, 'content': [{'type': 'input_text' if role == 'user' else 'output_text', 'text': body}]}})
     for tool in ['read_file', 'exec_command']:
-        records.append({'type': 'response_item', 'payload': {'type': 'function_call', 'name': tool, 'call_id': f'call-{i}-{tool}', 'arguments': '{"path":"README.md"}'}})
+        records.append({'type': 'response_item', 'payload': {'type': 'function_call', 'name': tool, 'call_id': f'call-{i}-{tool}', 'arguments': ('{"cmd":"Remove-Item ./scratch.txt"}' if i == 0 and tool == 'exec_command' else '{"path":"README.md"}')}})
         records.append({'type': 'response_item', 'payload': {'type': 'function_call_output', 'call_id': f'call-{i}-{tool}', 'output': 'Synthetic tool output; no command was executed.'}})
-    (source / f'rollout-{i}.jsonl').write_text(''.join(json.dumps({**r, 'timestamp': time}) + '\n' for r in records), encoding='utf-8')
+    (source / f'rollout-{i}.jsonl').write_text(''.join(json.dumps({**r, 'timestamp': (datetime.fromisoformat(time) - timedelta(minutes=len(records)-n)).isoformat()}) + '\n' for n, r in enumerate(records)), encoding='utf-8')
+
+(source / 'guardian.jsonl').write_text(json.dumps({'type': 'session_meta', 'timestamp': time, 'payload': {'id': 'guardian-test', 'originator': 'Codex Desktop', 'thread_source': 'guardian_review', 'timestamp': time}}) + '\n' + json.dumps({'type': 'response_item', 'timestamp': time, 'payload': {'type': 'message', 'role': 'user', 'content': [{'type': 'input_text', 'text': '<environment_context>Copied context</environment_context>'}]}}) + '\n', encoding='utf-8')
 
 secondary = ROOT / 'data/e2e-secondary'
 secondary.mkdir(parents=True, exist_ok=True)

@@ -3,19 +3,18 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import select
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from backend.connectors import sync_codex
-from backend.db import ChatSession, Connection, Event, ROOT, SessionLocal, now
+from backend.db import Connection, ROOT, SessionLocal, now
 
 lock = threading.RLock()
 logger = logging.getLogger(__name__)
@@ -156,64 +155,8 @@ def sync(id_: str):
         return serialize(db.get(Connection, id_))
 
 
-def filters(provider, connection, q, session_ids):
-    conditions = [Connection.provider == "codex"]
-    if provider:
-        conditions.append(Connection.provider == provider)
-    if connection:
-        conditions.append(Connection.id == connection)
-    if q:
-        conditions.append(or_(ChatSession.title.icontains(q, autoescape=True), ChatSession.id.in_(select(Event.session_id).where(Event.text.icontains(q, autoescape=True)))))
-    if session_ids:
-        conditions.append(ChatSession.id.in_(session_ids.split(",")))
-    return conditions
-
-
-def cutoff(days):
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat() if days else "0000"
-
-
-@app.get("/api/sessions")
-def sessions(provider: str = "", connection: str = "", q: str = "", session_ids: str = "", days: int = Query(0, ge=0, le=3650), sort: Literal["recent", "messages", "actions", "title"] = "recent", offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
-    counts = select(Event.session_id, func.sum(case((Event.kind == "message", 1), else_=0)).label("messages"), func.sum(case((Event.kind == "tool_call", 1), else_=0)).label("actions")).where(Event.occurred_at >= cutoff(days)).group_by(Event.session_id).subquery()
-    query = select(ChatSession, Connection.name, Connection.provider, func.coalesce(counts.c.messages, 0), func.coalesce(counts.c.actions, 0)).join(Connection).outerjoin(counts, counts.c.session_id == ChatSession.id).where(*filters(provider, connection, q, session_ids))
-    if days:
-        query = query.where(counts.c.session_id.is_not(None))
-    ordering = {"recent": ChatSession.updated_at.desc(), "messages": func.coalesce(counts.c.messages, 0).desc(), "actions": func.coalesce(counts.c.actions, 0).desc(), "title": ChatSession.title.asc()}[sort]
-    with SessionLocal() as db:
-        total = db.scalar(select(func.count()).select_from(query.subquery()))
-        rows = db.execute(query.order_by(ordering, ChatSession.id).offset(offset).limit(limit)).all()
-        return {"total": total, "items": [{**serialize(s), "connection_name": name, "provider": p, "messages": m, "actions": a} for s, name, p, m, a in rows]}
-
-
-@app.get("/api/metrics")
-def metrics(provider: str = "", connection: str = "", q: str = "", session_ids: str = "", days: int = Query(7, ge=0, le=3650)):
-    time = cutoff(days)
-    selected = select(ChatSession.id).join(Connection).where(*filters(provider, connection, q, session_ids))
-    base = select(Event).where(Event.session_id.in_(selected), Event.occurred_at >= time).subquery()
-    with SessionLocal() as db:
-        counts = dict(db.execute(select(base.c.kind, func.count()).group_by(base.c.kind)).all())
-        roles = dict(db.execute(select(base.c.role, func.count()).where(base.c.kind == "message").group_by(base.c.role)).all())
-        daily = db.execute(select(func.substr(base.c.occurred_at, 1, 10), base.c.role, base.c.kind, func.count()).group_by(func.substr(base.c.occurred_at, 1, 10), base.c.role, base.c.kind)).all()
-        active = db.scalar(select(func.count(func.distinct(base.c.session_id))))
-        tools = db.execute(select(base.c.tool_name, func.count()).where(base.c.kind == "tool_call").group_by(base.c.tool_name).order_by(func.count().desc()).limit(6)).all()
-        return {"sessions": active, "messages": counts.get("message", 0), "questions": roles.get("user", 0), "answers": roles.get("assistant", 0), "actions": counts.get("tool_call", 0), "daily": [{"day": d, "role": r, "kind": k, "count": n} for d, r, k, n in daily], "tools": [{"name": t or "Unknown tool", "count": n} for t, n in tools]}
-
-
-@app.get("/api/sessions/{id_}/events")
-def events(id_: str, offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=200), kind: str = "", q: str = ""):
-    with SessionLocal() as db:
-        session = db.get(ChatSession, id_)
-        if not session or db.get(Connection, session.connection_id).provider != "codex":
-            raise HTTPException(404, "Session not found.")
-        query = select(Event).where(Event.session_id == id_)
-        if kind:
-            query = query.where(Event.kind == kind)
-        if q:
-            query = query.where(Event.text.icontains(q, autoescape=True))
-        total = db.scalar(select(func.count()).select_from(query.subquery()))
-        rows = db.scalars(query.order_by(Event.occurred_at, Event.id).offset(offset).limit(limit))
-        return {"session": serialize(session), "total": total, "items": [{k: v for k, v in serialize(e).items() if k != "payload"} for e in rows]}
+from backend.analytics import router
+app.include_router(router)
 
 
 dist = ROOT / "frontend/dist"
