@@ -32,6 +32,9 @@ class Connection(Base):
     error: Mapped[str | None] = mapped_column(Text)
     last_sync: Mapped[str | None] = mapped_column(String(40))
     created_at: Mapped[str] = mapped_column(String(40), default=now)
+    hooks_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    hook_last_seen: Mapped[str | None] = mapped_column(String(40))
+    hook_error: Mapped[str | None] = mapped_column(Text)
 
 
 class ChatSession(Base):
@@ -65,6 +68,21 @@ class Event(Base):
     ingested_at: Mapped[str] = mapped_column(String(40), default=now)
     payload: Mapped[dict] = mapped_column(JSON)
     schema_version: Mapped[int] = mapped_column(Integer, default=1)
+    transcript_seen: Mapped[bool] = mapped_column(Boolean, default=True)
+    hook_state: Mapped[str | None] = mapped_column(String(30))
+    hook_seen_at: Mapped[str | None] = mapped_column(String(40))
+
+
+class HookObservation(Base):
+    __tablename__ = "hook_observations"
+    __table_args__ = (UniqueConstraint("connection_id", "fingerprint"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    connection_id: Mapped[str] = mapped_column(ForeignKey("connections.id"), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
+    phase: Mapped[str] = mapped_column(String(40))
+    received_at: Mapped[str] = mapped_column(String(40))
+    payload: Mapped[dict] = mapped_column(JSON)
 
 
 class Checkpoint(Base):

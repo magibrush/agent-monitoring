@@ -411,6 +411,31 @@ export function ConnectionDialog({
   );
 }
 
+function HookSetup({ connection, close, done }: { connection: Connection; close: () => void; done: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const setup = useQuery({ queryKey: ["hook-setup", connection.id], queryFn: () => api<{ path: string; config: unknown; instructions: string }>(`/connections/${connection.id}/hooks`), retry: false, refetchInterval: false });
+  async function save(enabled: boolean) {
+    setBusy(true); setError("");
+    try { await api(`/connections/${connection.id}/hooks`, json("PATCH", { enabled })); done(); }
+    catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+  return <Modal close={() => { if (!busy) close(); }}>
+    <div className="modal-heading"><div><h2 id="dialog-title">Live hook observations</h2><p>{connection.name}</p></div><button className="icon-button" aria-label="Close hook setup" disabled={busy} onClick={close}><X size={20} /></button></div>
+    <div className="hook-setup-body"><p>Observe tool requests and results as they happen. Relay records activity without approving, changing, or blocking actions.</p>
+    <p>Notifications are saved locally while Relay is offline and matched with transcript history. The dashboard refreshes every 2 seconds.</p>
+    {setup.data && <>
+      <div className="connection-detail"><span>PROVIDER SETTINGS</span><code>{setup.data.path}</code></div>
+      <p>Enabling adds Relay’s observer to this profile and saves a backup of existing settings. Other hooks are preserved.</p>
+      <div className="info-box">{setup.data.instructions} Hosted tools and some Codex tool paths do not emit hooks.</div>
+      <details><summary>View observer configuration</summary><pre className="hook-config">{JSON.stringify(setup.data.config, null, 2)}</pre></details>
+    </>}
+    {(error || setup.error) && <div className="error" role="alert">{error || (setup.error as Error).message}</div>}
+    </div><div className="modal-footer hook-setup-footer"><button className="secondary" disabled={busy} onClick={close}>Close</button><button className="primary" disabled={busy || !setup.data} onClick={() => save(!connection.hooks_enabled)}>{busy ? "Updating…" : connection.hooks_enabled ? "Disable live hooks" : "Enable live hooks"}</button></div>
+  </Modal>;
+}
+
 export function Connections({
   items,
   refresh,
@@ -429,6 +454,7 @@ export function Connections({
   const [diagnostics, setDiagnostics] = useState<Record<string, string>>({});
   const [deleting, setDeleting] = useState<Connection | null>(null);
   const [deleteError, setDeleteError] = useState("");
+  const [hookConnection, setHookConnection] = useState<Connection | null>(null);
   async function removeConnection() {
     if (!deleting) return;
     setBusy(deleting.id);
@@ -520,6 +546,12 @@ export function Connections({
               <strong>{date(c.last_sync)}</strong>
             </div>
             {c.error && <div className="error">{c.error}</div>}
+            <div className="connection-detail">
+              <span>LIVE HOOKS · OBSERVATION ONLY</span>
+              <strong>{!c.hooks_enabled ? "Not connected" : !c.enabled ? "Paused · notifications queued" : c.hook_last_seen ? `Last received ${date(c.hook_last_seen)}` : "Installed · waiting for first hook"}</strong>
+              {c.hook_error && <p className="error">{c.hook_error}</p>}
+              <button className="secondary" onClick={() => setHookConnection(c)}>Set up live hooks</button>
+            </div>
             <div className="connection-actions">
               <button
                 className="secondary"
@@ -565,6 +597,7 @@ export function Connections({
           <small>Desktop, CLI, or another local profile</small>
         </button>
       </div>
+      {hookConnection && <HookSetup connection={hookConnection} close={() => setHookConnection(null)} done={() => { refresh(); setHookConnection(null); notify("Hook setup updated. Restart the provider session; Codex hooks also need review in /hooks."); }} />}
       {deleting && (
         <Modal
           close={() => {

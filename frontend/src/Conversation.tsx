@@ -229,6 +229,7 @@ export function Conversation({
               )}
               <time>{new Date(event.occurred_at).toLocaleString()}</time>
             </div>
+            {event.kind === "tool_call" && event.hook_seen_at && <p className="hook-observation">{event.transcript_seen ? "Hook + transcript" : "Live hook · awaiting transcript"} · {event.hook_state === "unknown" ? "Outcome unknown" : event.hook_state === "requested" ? "Requested · outcome pending" : event.hook_state}</p>}
             {event.role === "tool" || event.kind === "context" ? (
               <details open={Boolean(search) || undefined}>
                 <summary>

@@ -737,7 +737,7 @@ export default function App() {
                   <span className="status-dot" />
                   {connections.data?.filter((c) => c.status === "watching")
                     .length ?? 0}{" "}
-                  connections watching · refreshes every 4s
+                  connections watching · refreshes every 2s
                 </span>
                 <span>Observation only · actions are not blocked</span>
               </div>

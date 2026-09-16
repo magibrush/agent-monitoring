@@ -18,4 +18,4 @@ Source access remains read-only. This release observes recorded activity; it doe
 
 ## Next step
 
-Complete manual testing across all three integrations, then design the separate action-validation and enforcement phase.
+Read-only hook setup and transcript correlation are implemented in [RFC 003](rfc-003-live-hook-observation.md). Complete live provider compatibility testing before designing action validation and enforcement.

@@ -108,6 +108,26 @@ Codex **guardian approval-review threads** copy parent history. They are identif
 
 ## Verify
 
+### Optional live hook observations
+
+Open **Connections → Set up live hooks → Enable live hooks** for a normal profile.
+Relay adds an observer to the profile settings while preserving existing hooks and
+saving a backup. Restart Claude/Codex sessions; review and trust the Codex observer
+in `/hooks`. The connection shows **waiting for first hook** until a notification
+actually arrives. Run a harmless tool and check **Last received**, then inspect the
+action in Explorer for its hook/transcript source and observed outcome.
+
+The observer only queues local notifications and always exits without a decision.
+Relay never approves, blocks, or changes tools. Queued observations survive downtime;
+the dashboard refreshes every two seconds. Exact tool-call IDs prevent duplicate
+action counts when transcripts catch up. Unknown results stay unknown.
+
+Use **Disable live hooks** to remove Relay's handlers. Pause queues notifications
+for catch-up. Disable before deleting a connection to remove its provider settings
+too; deletion alone deactivates capture and leaves inert handlers. Both queue data
+and provider-settings backups are local plaintext. See [RFC 003](docs/rfc-003-live-hook-observation.md)
+for coverage, limits and validation. Existing transcript-only monitoring still works.
+
 ```powershell
 uv run pytest -q
 cd frontend

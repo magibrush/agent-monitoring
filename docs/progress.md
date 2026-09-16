@@ -1,5 +1,12 @@
 # Relay — progress
 
+Latest milestone: [RFC 003 — live hook observation](rfc-003-live-hook-observation.md).
+Read-only observer setup, durable local delivery, transcript correlation and Explorer
+outcomes are implemented. Local hook receipt is confirmed for Codex CLI and Claude
+Code, and the user reported a successful smoke check on 16 September 2026. Codex
+Desktop receipt and broader compatibility testing remain open; enforcement remains
+future work.
+
 Updated: 16 September 2026
 
 ## Goal

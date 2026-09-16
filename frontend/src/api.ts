@@ -8,6 +8,9 @@ export interface Connection {
   error: string | null;
   last_sync: string | null;
   session_count?: number;
+  hooks_enabled: boolean;
+  hook_last_seen: string | null;
+  hook_error: string | null;
 }
 export interface ProviderConfig {
   id: string;
@@ -32,6 +35,9 @@ export interface Session {
   match: { kind: string; text: string; event_id: number | null } | null;
 }
 export interface ChatEvent {
+  transcript_seen: boolean;
+  hook_state: string | null;
+  hook_seen_at: string | null;
   id: number;
   role: string;
   kind: string;

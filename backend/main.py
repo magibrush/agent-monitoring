@@ -13,7 +13,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from backend.connectors import sync_connection, inspect_source, source_root
 from backend.providers import PROVIDERS, default_path
-from backend.db import ChatSession, Checkpoint, Event, Connection, ROOT, SessionLocal, now
+from backend.db import ChatSession, Checkpoint, Event, HookObservation, Connection, ROOT, SessionLocal, now
+from backend import hooks
 
 lock = threading.RLock()
 logger = logging.getLogger(__name__)
@@ -42,6 +43,13 @@ def synchronize(connection_id=None):
 
 @asynccontextmanager
 async def lifespan(app):
+    async def watch_hooks():
+        while True:
+            try:
+                await asyncio.to_thread(synchronize_hooks)
+            except Exception:
+                logger.exception("Hook collector cycle failed")
+            await asyncio.sleep(0.5)
     async def watch():
         while True:
             try:
@@ -50,12 +58,18 @@ async def lifespan(app):
                 logger.exception("Collector cycle failed")
             await asyncio.sleep(3)
     task = asyncio.create_task(watch())
+    hook_task = asyncio.create_task(watch_hooks())
     yield
     task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    hook_task.cancel()
+    await asyncio.gather(task, hook_task, return_exceptions=True)
+
+
+def synchronize_hooks():
+    with lock, SessionLocal() as db:
+        for connection in db.scalars(select(Connection).where(Connection.provider.in_(PROVIDERS),
+                Connection.enabled.is_(True), Connection.hooks_enabled.is_(True))).all():
+            hooks.collect(db, connection)
 
 
 app = FastAPI(title="Relay · Agent monitoring", lifespan=lifespan)
@@ -88,7 +102,7 @@ def serialize(model):
 def health():
     with SessionLocal() as db:
         db.execute(select(Connection.id).limit(1))
-    return {"status": "ok", "mode": "observation", "poll_seconds": 3}
+    return {"status": "ok", "mode": "observation", "poll_seconds": 3, "hook_poll_seconds": 0.5}
 
 
 @app.get("/api/connections")
@@ -187,12 +201,46 @@ def delete_connection(id_: str):
         if not connection or connection.provider not in PROVIDERS:
             raise HTTPException(404, "Connection not found.")
         sessions = select(ChatSession.id).where(ChatSession.connection_id == id_)
+        (hooks.queue_path(connection) / "enabled").unlink(missing_ok=True)
+        db.execute(delete(HookObservation).where(HookObservation.connection_id == id_))
         db.execute(delete(Checkpoint).where(Checkpoint.connection_id == id_))
         db.execute(delete(Event).where(Event.session_id.in_(sessions)))
         db.execute(delete(ChatSession).where(ChatSession.connection_id == id_))
         db.delete(connection)
         db.commit()
     return {"deleted": id_}
+
+
+@app.get("/api/connections/{id_}/hooks")
+def hook_setup(id_: str):
+    with SessionLocal() as db:
+        c = db.get(Connection, id_)
+        if not c or c.provider not in PROVIDERS:
+            raise HTTPException(404, "Connection not found.")
+        try:
+            target, snippet = hooks.setup(c)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        return {"path": str(target), "config": snippet, "mode": "observation",
+                "instructions": "Restart the provider session after setup. In Codex, use /hooks to review and trust the observer. A received hook, not installation, confirms compatibility."}
+
+
+class HookUpdate(BaseModel):
+    enabled: bool
+
+
+@app.patch("/api/connections/{id_}/hooks")
+def update_hooks(id_: str, body: HookUpdate):
+    with lock, SessionLocal() as db:
+        c = db.get(Connection, id_)
+        if not c or c.provider not in PROVIDERS:
+            raise HTTPException(404, "Connection not found.")
+        try:
+            hooks.configure(c, body.enabled)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(422, str(exc))
+        db.commit()
+        return serialize(c)
 
 
 @app.patch("/api/connections/{id_}")

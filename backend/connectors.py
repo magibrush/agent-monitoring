@@ -117,8 +117,22 @@ def add_event(db, session, external_id, kind, role, text, time, payload, tool_na
     if existing is not None:
         return 0
     details = payload.get("payload", payload)
+    call_id = details.get("call_id") or details.get("tool_use_id") or (details.get("id") if details.get("type") == "tool_use" else None)
+    if kind == "tool_call" and call_id:
+        observed = db.scalar(select(Event).where(Event.session_id == session.id, Event.kind == "tool_call", Event.tool_call_id == call_id, Event.transcript_seen.is_(False)))
+        if observed is not None:
+            observed.external_id, observed.text, observed.payload = external_id, text, payload
+            observed.tool_name, observed.occurred_at = tool_name, time
+            observed.action_category = action_category(tool_name, text)
+            observed.transcript_seen = True
+            session.updated_at = max(session.updated_at, time)
+            return 0
     if kind == "message":
         kind, text = message_content(text, role)
+    if kind == "tool_result" and call_id:
+        observed = db.scalar(select(Event).where(Event.session_id == session.id, Event.kind == "tool_call", Event.tool_call_id == call_id))
+        if observed is not None and observed.hook_state == "requested":
+            observed.hook_state = "failed" if details.get("is_error") is True else "unknown"
     db.add(Event(session_id=session.id, external_id=external_id, kind=kind, role=role, text=text, tool_name=tool_name, action_category=action_category(tool_name, text) if kind == "tool_call" else "other", occurred_at=time, payload=payload, tool_call_id=details.get("call_id") or details.get("tool_use_id") or (details.get("id") if details.get("type") == "tool_use" else None), turn_id=details.get("turn_id")))
     session.updated_at = max(session.updated_at, time)
     if session.title == "Untitled session" and kind == "message" and role == "user" and text:
