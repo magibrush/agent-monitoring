@@ -43,6 +43,37 @@ records = [
 ]
 (secondary / 'rollout.jsonl').write_text(''.join(json.dumps({**r, 'timestamp': time}) + '\n' for r in records), encoding='utf-8')
 
+mixed = ROOT / 'data/e2e-mixed'
+mixed.mkdir(parents=True, exist_ok=True)
+for provider, origin, source_type in [('desktop', 'Codex Desktop', 'vscode'), ('cli', 'codex-tui', 'cli')]:
+    records = [
+        {'type': 'session_meta', 'payload': {'id': f'mixed-{provider}', 'originator': origin, 'source': source_type, 'timestamp': time}},
+        {'type': 'response_item', 'payload': {'type': 'message', 'role': 'user', 'content': f'Mixed source {provider} conversation'}},
+        {'type': 'response_item', 'payload': {'type': 'function_call', 'name': 'exec_command', 'call_id': 'mixed-tool', 'arguments': '{"cmd":"pwd"}'}},
+        {'type': 'response_item', 'payload': {'type': 'function_call_output', 'call_id': 'mixed-tool', 'output': 'Synthetic workspace'}},
+    ]
+    (mixed / f'{provider}.jsonl').write_text(''.join(json.dumps({**r, 'timestamp': time}) + '\n' for r in records), encoding='utf-8')
+
 if __name__ == '__main__':
+    profile = ROOT / 'data/e2e-profile'
+    for folder in ['sessions', 'archived_sessions']:
+        target = profile / folder
+        target.mkdir(parents=True, exist_ok=True)
+        for file in mixed.glob('*.jsonl'):
+            (target / file.name).write_bytes(file.read_bytes())
+    os.environ['CODEX_HOME'] = str(profile)
+    claude_profile = ROOT / 'data/e2e-claude-profile'
+    claude_project = claude_profile / 'projects' / 'test-project'
+    claude_project.mkdir(parents=True, exist_ok=True)
+    claude_records = [
+        {'uuid': 'claude-user', 'type': 'user', 'message': {'role': 'user', 'content': 'Review Claude adapter'}},
+        {'uuid': 'claude-assistant', 'type': 'assistant', 'message': {'role': 'assistant', 'content': [
+            {'type': 'text', 'text': 'Checking the fixture'},
+            {'type': 'tool_use', 'id': 'claude-read', 'name': 'Read', 'input': {'file_path': 'README.md'}}]}},
+        {'uuid': 'claude-result', 'type': 'user', 'message': {'role': 'user', 'content': [
+            {'type': 'tool_result', 'tool_use_id': 'claude-read', 'content': 'Claude fixture file contents'}]}}
+    ]
+    (claude_project / 'claude-main.jsonl').write_text(''.join(json.dumps({**r, 'sessionId': 'claude-main', 'timestamp': time}) + '\n' for r in claude_records), encoding='utf-8')
+    os.environ['CLAUDE_CONFIG_DIR'] = str(claude_profile)
     import uvicorn
-    uvicorn.run('backend.main:app', host='127.0.0.1', port=8000)
+    uvicorn.run('backend.main:app', host='127.0.0.1', port=int(os.getenv('RELAY_E2E_PORT', '8000')))

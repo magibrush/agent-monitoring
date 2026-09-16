@@ -7,11 +7,12 @@ Research date: 15 September 2026. This document separates verified integration b
 | Source | Observation path | Possible control path | v0.1 decision |
 | --- | --- | --- | --- |
 | Codex Desktop | Local JSONL transcripts | Current Codex hooks describe pre-tool decisions, subject to runtime support and tool coverage | Read-only transcript polling; do not change the running agent |
-| Claude Code, later | Lifecycle hooks and transcripts; telemetry | Synchronous pre-tool hooks for supported calls | Design now, implement and qualify later |
+| Codex CLI | Local JSONL transcripts with CLI provenance | Same version-dependent hook considerations as Desktop | Read-only polling through the shared collector; separate connection type |
+| Claude Code | Local project and subagent JSONL transcripts | Synchronous pre-tool hooks for supported calls | Read-only polling under claude_code; retired Desktop imports remain hidden |
 | Agent runtime we own, later | Emit events directly around each operation | Tool executor or broker enforces decisions | Strongest candidate for controlled stress tests |
 
 
-Codex documents local and archived session transcript locations. We verified the installed Desktop identifies itself with `originator: "Codex Desktop"`; `source: "vscode"` alone cannot distinguish the desktop from an IDE extension. The adapter requires Desktop provenance. [Codex troubleshooting](https://learn.chatgpt.com/docs/reference/troubleshooting)
+Codex documents local and archived session transcript locations. We verified the installed Desktop identifies itself with `originator: "Codex Desktop"`; `source: "vscode"` alone cannot distinguish the desktop from an IDE extension. Desktop connections require Desktop provenance; CLI connections use a separate classifier with the same checkpointed reader. Creation provenance stays fixed across resumes. See the README for multi-profile behavior and supported CLI metadata. Codex CLI 0.154.0 uses `originator: "codex-tui"` and `source: "cli"`; the adapter now accepts explicit CLI/exec source independently of the changing client label. Two actual CLI transcripts passed read-only ingestion and replay validation. [Codex troubleshooting](https://learn.chatgpt.com/docs/reference/troubleshooting)
 
 ### Hook semantics that matter
 
@@ -29,7 +30,7 @@ Claude Code offers OpenTelemetry metrics/events for usage and operations. Treat 
 
 ```mermaid
 flowchart LR
-  A[Codex local transcripts] --> B[Read-only collector]
+  A[Codex and Claude Code local transcripts] --> B[Read-only collector]
   B --> E[Normalized events + source payloads]
   E --> F[(SQLite WAL)]
   F --> G[FastAPI queries]

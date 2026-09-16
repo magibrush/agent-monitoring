@@ -1,63 +1,43 @@
 /** Shared categorical styling and cumulative stacking for count charts. */
+// Alternate dark/cool and bright/warm accents so adjacent stack segments separate.
 export const CHART_PALETTE = [
-  "#5069ba",
-  "#398678",
-  "#b77c38",
-  "#9562b5",
-  "#bc5863",
-  "#368ca5",
-  "#86843d",
-  "#bb6e9c",
-  "#667789",
-  "#96644b",
+  "#2455a4", // blue
+  "#ffad32", // amber
+  "#663399", // purple
+  "#55cfa2", // mint
+  "#b51d45", // crimson
+  "#52c9e8", // cyan
+  "#75452b", // brown
+  "#d9ca40", // yellow
+  "#243747", // navy
+  "#ec8ac0", // pink
 ] as const;
 export const MESSAGE_SERIES = [
-  { key: "user", label: "User", color: CHART_PALETTE[0] },
-  { key: "assistant", label: "Assistant", color: CHART_PALETTE[1] },
+  { key: "user", label: "User", color: "#5069ba" },
+  { key: "assistant", label: "Assistant", color: "#398678" },
 ] as const;
-const registries = new Map<string, string[]>();
-export function categoricalSeries(namespace: string, names: string[]) {
-  let known = registries.get(namespace);
-  if (!known) {
-    try {
-      const saved = JSON.parse(
-        localStorage.getItem(`relay.chart.${namespace}`) || "[]",
-      );
-      known = Array.isArray(saved)
-        ? saved.filter((n: unknown) => typeof n === "string")
-        : [];
-    } catch {
-      known = [];
-    }
-    registries.set(namespace, known!);
-  }
-  for (const name of [...new Set(names)].sort())
-    if (!known!.includes(name)) known!.push(name);
-  try {
-    localStorage.setItem(`relay.chart.${namespace}`, JSON.stringify(known));
-  } catch {
-    /* Storage can be disabled. In-memory assignments remain stable. */
-  }
-  const groups = new Map<
-    string,
-    { key: string; label: string; color: string; members: string[] }
-  >();
-  for (const name of [...new Set(names)].sort(
-    (a, b) => known!.indexOf(a) - known!.indexOf(b),
-  )) {
-    const index = known!.indexOf(name),
-      overflow = index >= 9;
-    const key = overflow ? "series_other" : `series_${index}`;
-    if (!groups.has(key))
-      groups.set(key, {
-        key,
-        label: overflow ? "Other tools" : name,
-        color: CHART_PALETTE[overflow ? 9 : index],
-        members: [],
-      });
-    groups.get(key)!.members.push(name);
-  }
-  return [...groups.values()];
+export const OTHER_COLOR = "#94a3b8";
+export function categoricalSeries(tools: { name: string; count: number }[]) {
+  const totals = new Map<string, number>();
+  for (const tool of tools)
+    totals.set(tool.name, (totals.get(tool.name) ?? 0) + tool.count);
+  const ranked = [...totals]
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const series = ranked.slice(0, 10).map(([name], index) => ({
+    key: `series_${index}`,
+    label: name,
+    color: String(CHART_PALETTE[index]),
+    members: [name],
+  }));
+  if (ranked.length > 10)
+    series.push({
+      key: "series_other",
+      label: "Other actions",
+      color: OTHER_COLOR,
+      members: ranked.slice(10).map(([name]) => name),
+    });
+  return series;
 }
 export function cumulativeSegments(
   values: number[],
@@ -83,10 +63,12 @@ export function SeriesTooltipRow({
   label,
   color,
   value,
+  percent,
 }: {
   label: string;
   color: string;
   value: number;
+  percent?: number;
 }) {
   return (
     <div className="tooltip-row">
@@ -94,7 +76,12 @@ export function SeriesTooltipRow({
         <ColorKey color={color} />
         {label}
       </span>
-      <strong>{value.toLocaleString()}</strong>
+      <strong>
+        {value.toLocaleString()}
+        {percent !== undefined && (
+          <small className="tooltip-percent"> · {percent.toFixed(1)}%</small>
+        )}
+      </strong>
     </div>
   );
 }

@@ -21,20 +21,23 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
     .getByRole("button", { name: "Add connection", exact: true })
     .first()
     .click();
+  await page
+    .getByText("Another profile or archived conversations", { exact: true })
+    .click();
   await page.getByLabel("Connection name").fill("Development workspace");
   await page
     .getByLabel("Sessions directory")
     .fill(path.resolve("../data/e2e-source"));
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Add connection", exact: true })
+    .getByRole("button", { name: "Connect", exact: true })
     .first()
     .click();
   await expect(
     page.getByRole("heading", { name: "Development workspace" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Sync now" }).click();
-  await expect(page.getByText("Codex sync completed.")).toBeVisible();
+  await expect(page.getByText("Codex Desktop sync completed.")).toBeVisible();
   await page.getByRole("button", { name: "Overview", exact: true }).click();
   await expect(
     page.getByRole("button", { name: /Investigate ingestion delays/ }).first(),
@@ -113,7 +116,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   await page.getByRole("button", { name: "Reset zoom", exact: true }).click();
   await page.getByRole("button", { name: "Inspect activity" }).click();
   await page.getByRole("button", { name: "Next contributors" }).click();
-  await expect(page.locator(".contribution-panel small")).toContainText(
+  await expect(page.locator(".contribution-panel > small")).toContainText(
     "6–7 of 7",
   );
   await page.getByRole("button", { name: "Previous contributors" }).click();
@@ -279,13 +282,16 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   await expect(
     page.getByRole("dialog").getByText("Claude Desktop"),
   ).toHaveCount(0);
+  await page
+    .getByText("Another profile or archived conversations", { exact: true })
+    .click();
   await page.getByLabel("Connection name").fill("Research workspace");
   await page
     .getByLabel("Sessions directory")
     .fill(path.resolve("../data/e2e-secondary"));
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Add connection", exact: true })
+    .getByRole("button", { name: "Connect", exact: true })
     .first()
     .click();
   const second = page
@@ -335,7 +341,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
         break;
       }
     }
-    const tip = chart.locator(".signal-tooltip");
+    const tip = page.getByRole("tooltip");
     await expect(tip).toBeVisible();
     const keys = tip.locator(".chart-color-key");
     await expect(keys).toHaveCount(2);
@@ -400,21 +406,19 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   expect(errors).toEqual([]);
 });
 
-test("categorical colors remain stable and overflow preserves counts", () => {
-  const names = Array.from(
-    { length: 12 },
-    (_, i) => `tool-${i.toString().padStart(2, "0")}`,
-  );
-  const series = categoricalSeries("test-palette", names);
+test("top ten action colors are ranked dynamically and overflow preserves counts", () => {
+  const tools = Array.from({ length: 100 }, (_, i) => ({ name: `tool-${i.toString().padStart(2, "0")}`, count: i + 1 }));
+  const series = categoricalSeries(tools);
   expect(CHART_PALETTE).toHaveLength(10);
-  expect(series).toHaveLength(10);
-  expect(new Set(series.map((s) => s.color)).size).toBe(10);
-  expect(series.flatMap((s) => s.members).sort()).toEqual(names);
-  expect(series.at(-1)?.label).toBe("Other tools");
-  const one = categoricalSeries("test-palette", [names[3]])[0];
-  expect(one.color).toBe(
-    series.find((s) => s.members.includes(names[3]))!.color,
-  );
+  expect(series).toHaveLength(11);
+  expect(new Set(series.slice(0,10).map((s) => s.color)).size).toBe(10);
+  expect(series[0].members).toEqual(["tool-99"]);
+  expect(series[9].members).toEqual(["tool-90"]);
+  expect(series.at(-1)?.members).toHaveLength(90);
+  expect(series.flatMap((s) => s.members).sort()).toEqual(tools.map(t => t.name).sort());
+  expect(categoricalSeries([{name: "Bash", count: 200}, ...tools])[0].label).toBe("Bash");
+  expect(categoricalSeries([{name: "Read", count: 1}])[0].color).toBe(CHART_PALETTE[0]);
+  expect(categoricalSeries([...tools].reverse())).toEqual(series);
   const parts = cumulativeSegments([0, 2, 5, 1000], (n) => Math.log10(1 + n));
   expect(parts.every((n) => n >= 0)).toBeTruthy();
   expect(parts.reduce((a, b) => a + b, 0)).toBeCloseTo(Math.log10(1008));
