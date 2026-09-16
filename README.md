@@ -9,10 +9,10 @@ A local agent monitoring app: React + TypeScript frontend, Python API, and SQLit
 - Connection, precise time-range, message/tool search, and action-category filters; sorting and pagination.
 - Select sessions to aggregate their metrics; explore conversations and tool records in a separate split-view Explorer.
 - Aligned action/message charts, logarithmic or linear scale, drag-to-zoom, and exact manual bucket sizes.
-- Codex Desktop local transcript watcher, with durable checkpoints, pause/resume, sync errors, and manual sync.
+- Codex Desktop, Codex CLI, and Claude Code local transcript watchers, with durable checkpoints, pause/resume, source checks, sync errors, and manual sync.
 - Local-only HTTP access, SQLite WAL, SQLAlchemy models, Alembic migrations, and tests.
 
-Codex Desktop is the only supported integration. Enforcement workers are **not** implemented. Codex integration depends on the local transcript format and only includes Desktop-identified records. Recorded tool calls do not prove success. Read the [ingestion and enforcement research](docs/ingestion-and-enforcement.md) before building the security layer.
+Codex Desktop, Codex CLI, and Claude Code are supported integrations. Enforcement workers are **not** implemented. Codex integration depends on the local transcript format and routes records by their original Desktop or CLI provenance. Recorded tool calls do not prove success. Read the [ingestion and enforcement research](docs/ingestion-and-enforcement.md) before building the security layer.
 
 ## Stack choices
 
@@ -49,14 +49,35 @@ For frontend development, run the same Python service plus `npm run dev` in `fro
 
 If the system Node is old, use a newer Node in PATH. Codex installations may provide a compatible bundled Node under `%USERPROFILE%\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin`. `scripts/start.ps1` can use that runtime automatically after dependencies are installed.
 
-### Add Codex Desktop
+### Add Codex Desktop or CLI
 
-1. Click **Add connection → Codex Desktop**.
-2. Use the suggested `$CODEX_HOME/sessions` directory (defaults to `~/.codex/sessions`).
-3. Save. The collector reads complete records every three seconds; the UI refreshes every four seconds.
-4. Use **Connections** to pause, resume, or sync manually. Archived transcripts can be connected separately through their own directory.
+1. Click **Add connection** and choose **Codex Desktop** or **Codex CLI**.
+2. Relay detects the normal local profile and shows how many conversations it found.
+3. Click **Connect**. Already-connected sources are marked and cannot be added twice.
 
-Choose the actual sessions directory, not the whole home directory. Desktop provenance is required; CLI and VS Code extension-only records are excluded. Large initial histories may take several cycles. Missing/malformed/replaced transcripts surface errors; unknown event types are not counted. If the provider changes its schema, update the adapter and validate against fixtures before reimporting.
+No folder or name is required for normal setup. Open **Another profile or archived conversations** only for a custom local profile, an accessible WSL folder, or archives. Archives are a separate connection, not included in the normal source. Optional names distinguish multiple profiles of the same app. Missing folders and malformed metadata are reported before connecting.
+
+A connection is an app plus a local transcript folder, not a terminal window, project, or login. Normally there are two active sources (Codex Desktop and Codex CLI) sharing one profile, with an optional archive source for each. There is no fixed maximum of four: additional CODEX_HOME profiles and accessible folders can have their own connections. Opening several terminals or projects does not require extra connections. Source creation provenance determines routing when a session is resumed elsewhere.
+
+### How CLI sessions map to connections
+
+- One connection watches sessions across projects and terminals. Different project folders do not require separate connections.
+- The suggested path comes from Relay's `CODEX_HOME`, or `~/.codex`. A CLI with a different `CODEX_HOME` needs a connection pointing at that profile's `sessions` directory. WSL requires an explicit path readable by the Windows backend; remote hosts are not discovered.
+- Desktop keeps the existing `codex` provider ID; CLI uses `codex_cli`. Existing Desktop IDs, history, and checkpoints remain compatible without a schema migration.
+- Classification uses initial `session_meta`: Desktop originator `Codex Desktop`; explicit `cli`/`exec` source regardless of client label, or recognized `codex_cli_rs` / `codex-tui` originators with subagent/omitted source. Desktop originator takes precedence. Unsupported combinations remain unclassified.
+- Session identity is `(connection, Codex session ID)`. Resuming continues the existing entry. Switching clients does not move a transcript between connections: creation provenance determines ownership. Subagents remain separate sessions; internal reviews stay hidden by default.
+- Duplicate directories for the same integration are rejected. Distinct connections, including overlapping directories or copied profiles, have separate identities and can count overlapping history. Prefer non-overlapping directories per integration.
+- Monitoring is read-only; no hooks or model calls are needed. Only flushed transcript records are visible.
+
+For a manual check, add a CLI connection, run a **new** `codex` session in any project, exchange messages and run a harmless tool, then inspect Overview and Explorer. Resume it and verify the same row gains activity. Pause the connection, add activity, and resume to verify catch-up. A Desktop connection sharing the path should not acquire the new CLI session.
+
+Browser tests can use another port without stopping the app: set `$env:RELAY_E2E_PORT = "18000"` before running `npm run test:e2e`. They still use the isolated `data/e2e.db`.
+
+### Connection identity and removal
+
+Desktop connections use a teal monitor tile labeled **Codex Desktop**; CLI connections use a purple terminal tile labeled **Codex CLI**. Connection names remain visible in session lists, Explorer, and mobile layouts so profiles of the same integration can be distinguished.
+
+Use **Connections → Delete** to remove a connection. The confirmation removes that connection's imported sessions, events, and checkpoints from Relay in one transaction. Original transcript files and other connections are untouched. Reconnecting the same source imports its available history again. This removes database records; it is not a secure-erasure operation on SQLite files or backups.
 
 ### Metric definitions
 
@@ -125,6 +146,33 @@ Claude Desktop export importing has been removed. Any previously imported record
 
 ### Shared chart styling
 
-`frontend/src/chartSeries.tsx` provides a fixed 10-color palette, stable categorical assignment, color keys, tooltip rows, and cumulative stacking. Tool assignments persist locally across filters, zooms, and reloads. Nine tool colors plus an overflow **Other tools** color keep the palette bounded; overflow members remain individually listed in the tooltip. Message roles have fixed blue/teal colors. Future charts can reuse the same registry namespace for matching categories.
+Action charts rank tools independently inside each time bar. Ten predefined colors mean ranks 1 through 10, with gray combining additional actions in that bar. Ties use action name. There is no global action legend because a color can represent different tools in different bars. Linear scale is the default; logarithmic mode warns that segment heights are not proportional shares. Hover or select a bar for its action names, ranks, exact counts and percentages. Window inspection shows neutral aggregate totals; select a bar for matching rank colors. Message roles retain fixed blue/teal colors.
 
 The sticky scope header includes session-type filtering (all, conversations, or subagents), totals, and an always-present Clear all button. Clear all resets scope filters, selection, and session sorting. Custom date ranges show their dates; full timestamps are available on hover.
+
+### CLI discovery and troubleshooting
+
+On Windows, default CLI transcripts live in `%USERPROFILE%\.codex\sessions\YYYY\MM\DD\rollout-*.jsonl`. `CODEX_HOME` overrides the `.codex` home. Archived sessions live in its `archived_sessions` sibling. Project directories are recorded inside transcripts rather than determining their storage location.
+
+Relay checks its configured `CODEX_HOME`, the standard user home, archive folders, and existing connection paths. It does not scan the whole disk or infer environment variables belonging to another terminal. Custom profiles, WSL, and remote hosts require an accessible path. Discovery reads metadata only; adding a connection imports recorded history.
+
+Connection cards show imported session counts and offer **Check source**. Zero matching CLI sessions with Desktop sessions present means a source mismatch; unsupported counts indicate unrecognized provenance. A missing directory or malformed header produces an explicit error. A folder can be connected before its first session exists.
+
+Codex CLI 0.154.0 on this machine uses `originator: "codex-tui"`, `source: "cli"`. The older originator-only check incorrectly skipped those files. The corrected parser was validated read-only against two actual conversations (12 messages, 16 calls, 16 results, 2 context records) and a repeat scan produced no duplicates.
+
+### Conversation composition in charts
+
+Choose **Color by → Conversation** to see which conversations make up each action/message bar. This mode uses a linear scale so colored segments represent true counts and shares. The eight most active conversations in the full selected scope receive separate colors; remaining activity is combined as **Other conversations**. Zooming keeps that set fixed. The legend shows active colors and full titles on hover.
+
+Click a bar (or use Inspect's time selector) to see contributing conversations, exact counts, and share tracks. Shares use the entire bar or window as denominator, including conversations on other pages. Each entry opens that conversation in the selected time range. Switching back to **Activity type** restores tool/role breakdown and the previous scale. Conversation colors remain selected when filters change.
+
+
+### Add Claude Code
+
+Choose **Add connection > Claude Code > Connect**. Relay detects `~/.claude/projects` or `CLAUDE_CONFIG_DIR/projects`, with a folder override under **Another profile or folder**. Point it at the projects directory (all projects), a single project folder, or an accessible WSL/profile directory. Claude Code does not use the Codex archive toggle.
+
+The separate `claude_code` integration reads user text, assistant text, tool requests and results from complete JSONL records. Each content block is retained in order; thought blocks and binary attachments are not rendered. Stable record UUIDs prevent duplicates on resume/replay. Nested `subagents/agent-*.jsonl` files have separate identities linked to the parent session, even when they share its sessionId. Errors appear on the connection; malformed batches roll back with their checkpoints. Source files are never changed.
+
+Claude Code uses an amber **Claude Code** badge. Search, action filters, charts and Explorer share the same event model as Codex. Read/Glob/Grep map to reads; Write/Edit/MultiEdit/NotebookEdit to file writes; Bash/PowerShell to shell; WebFetch/WebSearch to network. Existing deletion heuristics still apply to shell commands. Recorded requests do not imply successful execution. Retired `claude` Desktop imports remain hidden and cannot be enabled through this adapter.
+
+Transcript layout references: [Claude Code hooks](https://code.claude.com/docs/en/hooks), [SDK sessions](https://code.claude.com/docs/en/agent-sdk/sessions). This is polling-based observation; no hooks need installing.

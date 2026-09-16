@@ -222,7 +222,7 @@ export function Conversation({
                         : "Assistant"}
               </strong>
               {event.kind === "tool_call" && (
-                <span className={`action-tag ${event.action_category}`}>
+                <span className="action-tag" data-category={event.action_category}>
                   {ACTIONS.find(([v]) => v === event.action_category)?.[1] ||
                     event.action_category}
                 </span>

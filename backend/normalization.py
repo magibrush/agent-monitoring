@@ -17,9 +17,18 @@ def message_content(text, role):
 
 
 def action_category(name, text):
+    # Exact Claude tool mappings must precede argument heuristics: writing a
+    # script containing "rm" is a file write, not an executed deletion.
+    claude_tools = {"Read": "read", "Glob": "read", "Grep": "read",
+                    "Write": "file_write", "Edit": "file_write", "MultiEdit": "file_write",
+                    "NotebookEdit": "file_write", "WebFetch": "network", "WebSearch": "network"}
+    if name in claude_tools:
+        return claude_tools[name]
     value = (name or "") + "\n" + text
     if re.search(r"\b(?:Remove-Item|rmdir|unlink|shutil\.rmtree|os\.remove)\b|(?:^|[\s;|&])(?:rm|del)\s|\*\*\* Delete File:", value, re.I):
         return "deletion"
+    if name in {"Bash", "PowerShell"}:
+        return "shell"
     if re.search(r"apply_patch|write_file|\*\*\* (?:Add|Update) File:", value, re.I):
         return "file_write"
     if re.search(r"read_file|Get-Content|\b(?:cat|rg)\s", value, re.I):

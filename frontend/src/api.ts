@@ -1,13 +1,23 @@
 export interface Connection {
   id: string;
   name: string;
-  provider: "codex";
+  provider: string;
   path: string | null;
   enabled: boolean;
   status: string;
   error: string | null;
   last_sync: string | null;
+  session_count?: number;
 }
+export interface ProviderConfig {
+  id: string;
+  label: string;
+  default_path: string;
+  available: boolean;
+  source: string;
+}
+export const providerLabel = (id: string) =>
+  ({ codex: "Codex Desktop", codex_cli: "Codex CLI", claude_code: "Claude Code" })[id] ?? id;
 export interface Session {
   id: string;
   external_id: string;
@@ -31,6 +41,7 @@ export interface ChatEvent {
   action_category: string;
 }
 export interface Metrics {
+  conversation_series?: { id: string; title: string; provider: string; connection_name: string }[];
   sessions: number;
   messages: number;
   questions: number;
@@ -42,6 +53,7 @@ export interface Metrics {
     assistant: number;
     actions: number;
     tools: { name: string; count: number }[];
+    conversations?: { id: string; actions: number; messages: number }[];
   }[];
   interval_seconds: number;
   interval_label: string;

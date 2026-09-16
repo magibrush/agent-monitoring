@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Bar,
@@ -18,7 +18,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { api, type Metrics, type Session } from "./api";
+import { api, providerLabel, type Metrics, type Session } from "./api";
 import { Conversation } from "./Conversation";
 import { Modal } from "./ui";
 import {
@@ -27,7 +27,9 @@ import {
   MESSAGE_SERIES,
   ColorKey,
   SeriesTooltipRow,
+  CHART_PALETTE,
 } from "./chartSeries";
+import { ChartTooltip } from "./ChartTooltip";
 import { RangeNavigator } from "./RangeNavigator";
 
 const intervals = [
@@ -44,13 +46,28 @@ const intervals = [
 const count = (n: number) => n.toLocaleString();
 const date = (n: number | string) => new Date(n).toLocaleString();
 
-export function Timeline({ params }: { params: string }) {
+const conversationColorAssignments = new Map<string, string>();
+
+export function Timeline({
+  params,
+  colorBy,
+  setColorBy,
+}: {
+  params: string;
+  colorBy: string;
+  setColorBy: (value: string) => void;
+}) {
+  const [pointer, setPointer] = useState({ x: 0, y: 0 });
+  const [actionPage, setActionPage] = useState(0);
+  const [actionSearch, setActionSearch] = useState("");
   const [viewport, setViewport] = useState<{
     start: string;
     end: string;
   } | null>(null);
   const [interval, setInterval] = useState("0");
-  const [scale, setScale] = useState("log");
+  const [scale, setScale] = useState("linear");
+  const conversationColors = useRef(conversationColorAssignments);
+  const effectiveScale = colorBy === "conversation" ? "linear" : scale;
   const [bucket, setBucket] = useState<number | null>(null);
   const [inspecting, setInspecting] = useState(false);
   const [lane, setLane] = useState("actions");
@@ -59,6 +76,7 @@ export function Timeline({ params }: { params: string }) {
   const [opened, setOpened] = useState<Session | null>(null);
   const query = new URLSearchParams(params);
   query.set("interval", interval);
+  query.set("conversations", String(colorBy === "conversation"));
   if (viewport) {
     query.set("view_start", viewport.start);
     query.set("view_end", viewport.end);
@@ -77,7 +95,11 @@ export function Timeline({ params }: { params: string }) {
   if (data) {
     narrow.set(
       "start",
-      bucket === null ? data.viewport.start : new Date(bucket).toISOString(),
+      bucket === null
+        ? data.viewport.start
+        : new Date(
+            Math.max(bucket, Date.parse(data.viewport.start)),
+          ).toISOString(),
     );
     narrow.set(
       "end",
@@ -134,18 +156,71 @@ export function Timeline({ params }: { params: string }) {
     setInterval("0");
     setBucket(null);
   }
-  const transform = (n: number) => (scale === "log" ? Math.log10(1 + n) : n);
-  const actionSeries = categoricalSeries("tools", [
-    ...new Set(
-      [...(overview.data?.series ?? []), ...(data?.series ?? [])].flatMap((r) =>
-        r.tools.map((t) => t.name),
+  const transform = (n: number) =>
+    effectiveScale === "log" ? Math.log10(1 + n) : n;
+  const usedColors = new Set<string>();
+  const reservedColors = new Set(
+    (data?.conversation_series ?? [])
+      .map((s) => conversationColors.current.get(s.id))
+      .filter(Boolean),
+  );
+  const conversationSeries = (data?.conversation_series ?? []).map((s) => {
+    let color =
+      s.id === "other" ? "#8792a2" : conversationColors.current.get(s.id);
+    if (!color || usedColors.has(color))
+      color =
+        CHART_PALETTE.find(
+          (c) => !usedColors.has(c) && !reservedColors.has(c),
+        ) ??
+        CHART_PALETTE.find((c) => !usedColors.has(c)) ??
+        "#8792a2";
+    usedColors.add(color);
+    conversationColors.current.set(s.id, color);
+    return { ...s, color, key: `conversation_${s.id}` };
+  });
+  const rankSlots = Array.from(
+    {
+      length: Math.min(
+        10,
+        Math.max(0, ...(data?.series ?? []).map((r) => r.tools.length)),
       ),
-    ),
-  ]);
+    },
+    (_, index) => ({
+      key: `series_${index}`,
+      label: `Rank ${index + 1}`,
+      color: CHART_PALETTE[index],
+    }),
+  );
+  const actionSeries = [
+    ...rankSlots,
+    ...((data?.series ?? []).some((r) => r.tools.length > 10)
+      ? [{ key: "series_other", label: "Other actions", color: "#94a3b8" }]
+      : []),
+  ];
+  const actionTotals = new Map<string, number>();
+  for (const row of data?.series ?? []) {
+    if (bucket !== null && row.time !== bucket) continue;
+    for (const tool of row.tools)
+      actionTotals.set(
+        tool.name,
+        (actionTotals.get(tool.name) ?? 0) + tool.count,
+      );
+  }
+  const inspectedActions = [...actionTotals].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  );
+  const matchingActions = inspectedActions.filter(([name]) =>
+    name.toLowerCase().includes(actionSearch.toLowerCase()),
+  );
+  const safeActionPage = Math.min(
+    actionPage,
+    Math.max(0, Math.ceil(matchingActions.length / 10) - 1),
+  );
   const rows =
     data?.series.map((r) => {
+      const ranked = categoricalSeries(r.tools);
       const parts = cumulativeSegments(
-        actionSeries.map((series) =>
+        ranked.map((series) =>
           r.tools
             .filter((t) => series.members.includes(t.name))
             .reduce((sum, t) => sum + t.count, 0),
@@ -154,10 +229,23 @@ export function Timeline({ params }: { params: string }) {
       );
       return {
         ...r,
+        ranked,
+        ...Object.fromEntries(
+          conversationSeries.flatMap((s) => {
+            const item = r.conversations?.find((c) => c.id === s.id);
+            return [
+              [`${s.key}_actions`, item?.actions ?? 0],
+              [`${s.key}_messages`, item?.messages ?? 0],
+            ];
+          }),
+        ),
         plotUser: transform(r.user),
         plotAssistant: transform(r.user + r.assistant) - transform(r.user),
         ...Object.fromEntries(
-          actionSeries.map((series, i) => [series.key, parts[i]]),
+          actionSeries.map((series) => [
+            series.key,
+            parts[ranked.findIndex((s) => s.key === series.key)] ?? 0,
+          ]),
         ),
       };
     }) ?? [];
@@ -193,6 +281,9 @@ export function Timeline({ params }: { params: string }) {
     const maxLog = rawTicks.find((v) => v >= maximum) ?? maximum;
     return (
       <div
+        onMouseMoveCapture={(event) =>
+          setPointer({ x: event.clientX, y: event.clientY })
+        }
         className="signal-plot"
         aria-label={`${kind} by time`}
         data-testid={`${kind}-chart`}
@@ -243,15 +334,19 @@ export function Timeline({ params }: { params: string }) {
             <YAxis
               width={52}
               allowDecimals={false}
-              domain={scale === "log" ? [0, transform(maxLog)] : [0, "auto"]}
+              domain={
+                effectiveScale === "log" ? [0, transform(maxLog)] : [0, "auto"]
+              }
               ticks={
-                scale === "log"
+                effectiveScale === "log"
                   ? rawTicks.filter((v) => v <= maxLog).map(transform)
                   : undefined
               }
               tickFormatter={(v) =>
                 count(
-                  scale === "log" ? Math.round(10 ** Number(v) - 1) : Number(v),
+                  effectiveScale === "log"
+                    ? Math.round(10 ** Number(v) - 1)
+                    : Number(v),
                 )
               }
               tick={{ fontSize: 11, fill: "#5b687b" }}
@@ -263,7 +358,7 @@ export function Timeline({ params }: { params: string }) {
                 const r = payload?.[0]?.payload;
                 if (!active || !r) return null;
                 return (
-                  <div className="signal-tooltip">
+                  <ChartTooltip point={pointer}>
                     <strong>
                       {date(r.time)} —{" "}
                       {date(
@@ -274,21 +369,66 @@ export function Timeline({ params }: { params: string }) {
                       )}
                     </strong>
 
-                    {kind === "actions" ? (
+                    {colorBy === "conversation" ? (
+                      <>
+                        <b>
+                          {count(
+                            kind === "actions"
+                              ? r.actions
+                              : r.user + r.assistant,
+                          )}{" "}
+                          {kind}
+                        </b>
+                        {conversationSeries
+                          .filter((s) => r[`${s.key}_${kind}`] > 0)
+                          .map((s) => (
+                            <SeriesTooltipRow
+                              key={s.id}
+                              label={s.title}
+                              color={s.color}
+                              value={r[`${s.key}_${kind}`]}
+                            />
+                          ))}
+                        <small>Click for conversations and exact shares</small>
+                      </>
+                    ) : kind === "actions" ? (
                       <>
                         <b>{count(r.actions)} actions</b>
-                        {r.tools?.map((t: { name: string; count: number }) => (
-                          <SeriesTooltipRow
-                            key={t.name}
-                            label={t.name}
-                            color={
-                              actionSeries.find((s) =>
-                                s.members.includes(t.name),
-                              )?.color ?? "#667789"
-                            }
-                            value={t.count}
-                          />
-                        ))}
+                        {(r.ranked as ReturnType<typeof categoricalSeries>)
+                          .map((series) => ({
+                            ...series,
+                            count: r.tools
+                              .filter((t: { name: string; count: number }) =>
+                                series.members.includes(t.name),
+                              )
+                              .reduce(
+                                (sum: number, t: { count: number }) =>
+                                  sum + t.count,
+                                0,
+                              ),
+                          }))
+                          .filter((series) => series.count > 0)
+                          .map((series) => (
+                            <SeriesTooltipRow
+                              key={series.key}
+                              label={
+                                series.key === "series_other"
+                                  ? `Other actions (${r.tools.filter((t: { name: string }) => series.members.includes(t.name)).length} types)`
+                                  : series.label
+                              }
+                              color={series.color}
+                              value={series.count}
+                              percent={
+                                r.actions ? (series.count / r.actions) * 100 : 0
+                              }
+                            />
+                          ))}
+                        <small className="compact-tooltip-note">
+                          Partial preview; full breakdown in Inspect.
+                        </small>
+                        <small>
+                          Click bar to inspect all {r.tools.length} action types
+                        </small>
                       </>
                     ) : (
                       <>
@@ -303,11 +443,23 @@ export function Timeline({ params }: { params: string }) {
                         ))}
                       </>
                     )}
-                  </div>
+                  </ChartTooltip>
                 );
               }}
             />
-            {kind === "actions" ? (
+            {colorBy === "conversation" ? (
+              conversationSeries.map((s) => (
+                <Bar
+                  key={s.id}
+                  name={s.title}
+                  stackId={kind}
+                  dataKey={`${s.key}_${kind}`}
+                  fill={s.color}
+                  maxBarSize={18}
+                  isAnimationActive={false}
+                />
+              ))
+            ) : kind === "actions" ? (
               actionSeries.map((s) => (
                 <Bar
                   key={s.key}
@@ -366,6 +518,17 @@ export function Timeline({ params }: { params: string }) {
         {" "}
         <div className="signal-settings">
           <label>
+            Color by{" "}
+            <select
+              aria-label="Color bars by"
+              value={colorBy}
+              onChange={(e) => setColorBy(e.target.value)}
+            >
+              <option value="activity">Action rank per bar</option>
+              <option value="conversation">Conversation</option>
+            </select>
+          </label>
+          <label>
             Interval{" "}
             <select
               aria-label="Bucket size"
@@ -390,7 +553,8 @@ export function Timeline({ params }: { params: string }) {
             <select
               aria-label="Vertical scale"
               title="Logarithmic scale preserves zero counts; hover for exact values"
-              value={scale}
+              value={effectiveScale}
+              disabled={colorBy === "conversation"}
               onChange={(e) => setScale(e.target.value)}
             >
               <option value="log">Logarithmic</option>
@@ -472,6 +636,40 @@ export function Timeline({ params }: { params: string }) {
           </div>
         )}{" "}
       </div>{" "}
+      {colorBy === "activity" && (
+        <p className="rank-explanation">
+          Each bar ranks its own actions. Colors show rank, not action identity.
+          Gray combines ranks 11 onward. Click a bar for details.
+          {effectiveScale === "log"
+            ? " Log scale: segment sizes are not proportional shares."
+            : ""}
+        </p>
+      )}
+      {colorBy === "conversation" && (
+        <div className="conversation-legend" aria-label="Conversation colors">
+          <p>
+            Colors show conversations; Other combines the rest. Linear scale
+            shows their shares. Click a bar to inspect.
+          </p>
+          {conversationSeries
+            .filter((s) =>
+              rows.some(
+                (r) =>
+                  Number(r[`${s.key}_actions` as keyof typeof r]) ||
+                  Number(r[`${s.key}_messages` as keyof typeof r]),
+              ),
+            )
+            .map((s) => (
+              <span
+                key={s.id}
+                title={`${s.title}${s.connection_name ? ` · ${s.connection_name}` : ""}`}
+              >
+                <ColorKey color={s.color} />
+                {s.title}
+              </span>
+            ))}
+        </div>
+      )}
       {result.error && (
         <div className="error" role="alert">
           {result.error.message}
@@ -498,17 +696,19 @@ export function Timeline({ params }: { params: string }) {
               {plot("actions")}
               <div className="signal-heading">
                 <h3>Messages</h3>
-                <span
-                  title={
-                    scale === "log"
-                      ? "Logarithmic cumulative counts; segment heights are not proportional shares"
-                      : "Stacked message counts"
-                  }
-                >
-                  <ColorKey color={MESSAGE_SERIES[0].color} />
-                  User <ColorKey color={MESSAGE_SERIES[1].color} />
-                  Assistant
-                </span>
+                {colorBy !== "conversation" && (
+                  <span
+                    title={
+                      scale === "log"
+                        ? "Logarithmic cumulative counts; segment heights are not proportional shares"
+                        : "Stacked message counts"
+                    }
+                  >
+                    <ColorKey color={MESSAGE_SERIES[0].color} />
+                    User <ColorKey color={MESSAGE_SERIES[1].color} />
+                    Assistant
+                  </span>
+                )}
               </div>
               {plot("messages")}
               {overview.data && (
@@ -537,6 +737,17 @@ export function Timeline({ params }: { params: string }) {
                     </button>
                   )}
                 </div>
+                {bucket !== null && (
+                  <p className="contribution-time">
+                    {date(Math.max(bucket, Date.parse(data.viewport.start)))} —{" "}
+                    {date(
+                      Math.min(
+                        Date.parse(data.viewport.end),
+                        bucket + data.interval_seconds * 1000,
+                      ),
+                    )}
+                  </p>
+                )}
                 <button
                   className="text-button"
                   onClick={() => setInspecting(false)}
@@ -574,18 +785,137 @@ export function Timeline({ params }: { params: string }) {
                       ))}
                   </select>
                 </label>
-                {contributors.data?.items.map((s) => (
-                  <button
-                    className="contributor"
-                    key={s.id}
-                    onClick={() => setOpened(s)}
+                {lane === "actions" && (
+                  <section
+                    className="action-breakdown"
+                    aria-label="Action breakdown"
                   >
-                    <strong>{s.title}</strong>
-                    <span>
-                      {count(s.actions)} actions · {count(s.messages)} messages
-                    </span>
-                  </button>
-                ))}
+                    <h3>Action types ({inspectedActions.length})</h3>
+                    <label>
+                      Find an action
+                      <input
+                        aria-label="Find an action"
+                        value={actionSearch}
+                        onChange={(e) => {
+                          setActionSearch(e.target.value);
+                          setActionPage(0);
+                        }}
+                      />
+                    </label>
+                    {bucket === null && (
+                      <p>
+                        Window totals. Select a bar to see its ranks and colors.
+                      </p>
+                    )}
+                    {matchingActions
+                      .slice(safeActionPage * 10, safeActionPage * 10 + 10)
+                      .map(([name, amount]) => (
+                        <SeriesTooltipRow
+                          key={name}
+                          label={name}
+                          value={amount}
+                          percent={
+                            (amount /
+                              (inspectedActions.reduce(
+                                (sum, [, count]) => sum + count,
+                                0,
+                              ) || 1)) *
+                            100
+                          }
+                          color={
+                            bucket === null
+                              ? "#94a3b8"
+                              : (CHART_PALETTE[
+                                  inspectedActions.findIndex(
+                                    ([tool]) => tool === name,
+                                  )
+                                ] ?? "#94a3b8")
+                          }
+                        />
+                      ))}
+                    <small>
+                      {matchingActions.length ? safeActionPage * 10 + 1 : 0}–
+                      {Math.min(
+                        (safeActionPage + 1) * 10,
+                        matchingActions.length,
+                      )}{" "}
+                      of {matchingActions.length} action types
+                    </small>
+                    <div className="contributor-pages">
+                      <button
+                        className="secondary"
+                        aria-label="Previous action types"
+                        disabled={safeActionPage === 0}
+                        onClick={() => setActionPage(safeActionPage - 1)}
+                      >
+                        Previous
+                      </button>
+                      <button
+                        className="secondary"
+                        aria-label="Next action types"
+                        disabled={
+                          (safeActionPage + 1) * 10 >= matchingActions.length
+                        }
+                        onClick={() => setActionPage(safeActionPage + 1)}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </section>
+                )}
+                {contributors.data?.items.map((s) => {
+                  const total = data.series
+                    .filter((r) => bucket === null || r.time === bucket)
+                    .reduce(
+                      (n, r) =>
+                        n +
+                        (lane === "actions" ? r.actions : r.user + r.assistant),
+                      0,
+                    );
+                  const amount = lane === "actions" ? s.actions : s.messages;
+                  const percent = total ? (amount / total) * 100 : 0;
+                  const color =
+                    colorBy === "conversation"
+                      ? (conversationSeries.find((c) => c.id === s.id)?.color ??
+                        "#8792a2")
+                      : "#5069ba";
+                  return (
+                    <button
+                      className="contributor"
+                      key={s.id}
+                      onClick={() => setOpened(s)}
+                    >
+                      <strong title={s.title}>
+                        <ColorKey color={color} />
+                        {s.title}
+                      </strong>
+                      <small>
+                        {providerLabel(s.provider)}
+                        {s.connection_name !== providerLabel(s.provider)
+                          ? ` · ${s.connection_name}`
+                          : ""}
+                      </small>
+                      <span>
+                        {count(s.actions)} action{s.actions === 1 ? "" : "s"} ·{" "}
+                        {count(s.messages)} message{s.messages === 1 ? "" : "s"}
+                      </span>
+                      <span className="contribution-share">
+                        <span
+                          style={{
+                            width: `${Math.min(100, percent)}%`,
+                            background: color,
+                          }}
+                        />
+                      </span>
+                      <small>
+                        {count(amount)}{" "}
+                        {amount === 1 ? lane.slice(0, -1) : lane} ·{" "}
+                        {percent.toFixed(1)}% of{" "}
+                        {bucket === null ? "window" : "bar"}
+                      </small>
+                    </button>
+                  );
+                })}
                 {!contributors.data?.items.length && (
                   <p>
                     {contributors.isPending

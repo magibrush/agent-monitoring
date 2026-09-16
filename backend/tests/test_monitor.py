@@ -29,11 +29,12 @@ def transcript(path, origin='Codex Desktop'):
     path.write_text(record('session_meta', {'id': 'session-1', 'originator': origin}) + record('response_item', {'type': 'message', 'role': 'user', 'content': [{'type': 'input_text', 'text': 'Inspect the repository'}]}) + record('event_msg', {'type': 'user_message', 'message': 'Inspect the repository'}) + record('response_item', {'type': 'function_call', 'name': 'exec_command', 'arguments': '{"cmd":"pwd"}', 'call_id': 'call-1'}) + record('response_item', {'type': 'function_call_output', 'output': 'workspace', 'call_id': 'call-1'}), encoding='utf-8')
 
 
-def test_codex_restart_partial_writes_and_correlation(store, tmp_path):
+@pytest.mark.parametrize('provider,origin', [('codex', 'Codex Desktop'), ('codex_cli', 'codex_cli_rs')])
+def test_codex_restart_partial_writes_and_correlation(store, tmp_path, provider, origin):
     path = tmp_path / 'rollout.jsonl'
-    transcript(path)
+    transcript(path, origin)
     with store() as db:
-        c = Connection(name='Desktop', provider='codex', path=str(tmp_path))
+        c = Connection(name='Source', provider=provider, path=str(tmp_path))
         db.add(c); db.flush()
         assert sync_codex(db, c) == 3
         db.commit(); id_ = c.id
@@ -128,11 +129,12 @@ def test_retired_provider_is_unavailable_and_history_stays_local(store):
     assert client.patch(f'/api/connections/{connection_id}', json={'enabled': True}).status_code == 404
 
 
-def test_failed_sync_rolls_back_and_pause_stops_collection(store, tmp_path):
+@pytest.mark.parametrize('provider,origin', [('codex', 'Codex Desktop'), ('codex_cli', 'codex_cli_rs')])
+def test_failed_sync_rolls_back_and_pause_stops_collection(store, tmp_path, provider, origin):
     path = tmp_path / 'test.jsonl'
-    transcript(path)
+    transcript(path, origin)
     with store() as db:
-        c = Connection(name='Codex', provider='codex', path=str(tmp_path)); db.add(c); db.commit(); id_ = c.id
+        c = Connection(name='Codex', provider=provider, path=str(tmp_path)); db.add(c); db.commit(); id_ = c.id
     main.synchronize(id_)
     with store() as db:
         c = db.get(Connection, id_); assert c.status == 'watching'; c.enabled = False; db.commit()

@@ -5,14 +5,27 @@ import {
   ArrowRight,
   Check,
   CircleHelp,
+  Monitor,
   Pause,
   Play,
   Plus,
   RefreshCw,
   Terminal,
+  Trash2,
   X,
 } from "lucide-react";
-import { api, json, type Connection } from "./api";
+import {
+  api,
+  json,
+  providerLabel,
+  type Connection,
+  type ProviderConfig,
+} from "./api";
+
+const sourceSummary = (provider: string, counts: Record<string, number>) =>
+  provider === "claude_code"
+    ? `${counts.claude_code ?? 0} Claude Code sessions (including ${counts.subagents ?? 0} subagents) · ${counts.unknown ?? 0} unsupported files`
+    : `${counts.desktop ?? 0} Desktop · ${counts.cli ?? 0} CLI · ${counts.unknown ?? 0} unsupported files`;
 
 const date = (value: string | null) =>
   value
@@ -25,8 +38,22 @@ const date = (value: string | null) =>
     : "Not synced yet";
 export function Provider({ name }: { name: string }) {
   return (
-    <span className={`provider ${name}`} aria-label={name}>
-      <Terminal size={16} />
+    <span
+      className={`provider ${name}`}
+      aria-label={providerLabel(name)}
+      title={providerLabel(name)}
+    >
+      {name === "codex" ? (
+        <Monitor size={19} aria-hidden="true" />
+      ) : (
+        <Terminal size={19} aria-hidden="true" />
+      )}
+      <span className="provider-product" aria-hidden="true">
+        {name.startsWith("codex") ? "Codex" : name === "claude_code" ? "Claude" : name}
+      </span>
+      <span className="provider-caption" aria-hidden="true">
+        {name === "codex" ? "Desktop" : name === "codex_cli" ? "CLI" : name === "claude_code" ? "Code" : name}
+      </span>
     </span>
   );
 }
@@ -61,6 +88,8 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(close);
+  closeRef.current = close;
   useEffect(() => {
     const previous = document.activeElement as HTMLElement;
     const root = ref.current!;
@@ -69,10 +98,10 @@ export function Modal({
         root.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input, select, summary, a[href], [tabindex="0"]',
         ),
-      );
+      ).filter((element) => element.getClientRects().length > 0);
     focusable()[0]?.focus();
     const listener = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape") closeRef.current();
       if (e.key === "Tab") {
         const items = focusable();
         const first = items[0],
@@ -122,32 +151,70 @@ export function ConnectionDialog({
   close: () => void;
   done: () => void;
 }) {
-  const provider = "codex";
-  const [name, setName] = useState("Codex · My desktop");
-  const [path, setPath] = useState("");
+  const [provider, setProvider] = useState("codex");
+  const [customPath, setCustomPath] = useState<string | null>(null);
+  const [customName, setCustomName] = useState("");
+  const [archives, setArchives] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [checkedPath, setCheckedPath] = useState("");
   const defaults = useQuery({
     queryKey: ["config"],
-    queryFn: () => api<{ codex_path: string }>("/config"),
+    queryFn: () =>
+      api<{
+        providers: ProviderConfig[];
+        sources: {
+          path: string;
+          archived: boolean;
+          adapter: string;
+          counts: Record<string, number>;
+          error?: string;
+        }[];
+      }>("/config"),
   });
+  const connections = useQuery({
+    queryKey: ["connections"],
+    queryFn: () => api<Connection[]>("/connections"),
+  });
+  const isClaude = provider === "claude_code";
+  const sources = defaults.data?.sources.filter((s) => s.adapter === (isClaude ? "claude_code" : "codex")) ?? [];
+  const normalPath =
+    defaults.data?.providers.find((p) => p.id === provider)?.default_path ?? "";
+  const archivePath = normalPath.replace(
+    /sessions[\\/]?$/,
+    "archived_sessions",
+  );
+  const path = customPath ?? (archives ? archivePath : normalPath);
+  const name =
+    customName.trim() ||
+    `${providerLabel(provider)}${archives ? " · Archives" : ""}`;
+  const duplicate = connections.data?.find(
+    (c) =>
+      c.provider === provider &&
+      c.path?.replace(/\\/g, "/").toLowerCase() ===
+        path.replace(/\\/g, "/").toLowerCase(),
+  );
   useEffect(() => {
-    if (defaults.data)
-      setPath((current) => current || defaults.data.codex_path);
-  }, [defaults.data]);
+    const timer = setTimeout(() => setCheckedPath(path), 250);
+    return () => clearTimeout(timer);
+  }, [path]);
+  const check = useQuery({
+    queryKey: ["source-check", provider, checkedPath],
+    queryFn: () =>
+      api<{ matching_sessions: number; counts: Record<string, number> }>(
+        "/connections/check",
+        json("POST", { provider, path: checkedPath }),
+      ),
+    enabled: !!checkedPath && checkedPath === path,
+    retry: false,
+  });
+  const checked = checkedPath === path ? check.data : undefined;
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
-      await api(
-        "/connections",
-        json("POST", {
-          name,
-          provider,
-          path,
-        }),
-      );
+      await api("/connections", json("POST", { name, provider, path }));
       done();
     } catch (e) {
       setError((e as Error).message);
@@ -159,8 +226,8 @@ export function ConnectionDialog({
     <Modal close={close}>
       <div className="modal-heading">
         <div>
-          <h2 id="dialog-title">Add a connection</h2>
-          <p>Keep each source organized in its own connection.</p>
+          <h2 id="dialog-title">Connect an app</h2>
+          <p>Import conversations from this computer.</p>
         </div>
         <button
           className="icon-button"
@@ -171,48 +238,171 @@ export function ConnectionDialog({
         </button>
       </div>
       <form onSubmit={submit}>
-        <div className="connection-source">
-          <Provider name="codex" />
-          <div>
-            <strong>Codex Desktop</strong>
-            <p>Local transcript watcher</p>
-          </div>
+        <div className="app-choices" role="radiogroup" aria-label="App">
+          {(
+            defaults.data?.providers ?? [
+              { id: "codex", label: "Codex Desktop" },
+              { id: "codex_cli", label: "Codex CLI" },
+              { id: "claude_code", label: "Claude Code" },
+            ]
+          ).map((p) => (
+            <label
+              key={p.id}
+              className={`app-choice ${provider === p.id ? "chosen" : ""}`}
+            >
+              <input
+                type="radio"
+                name="integration"
+                aria-label={p.label}
+                value={p.id}
+                checked={provider === p.id}
+                onChange={() => {
+                  setProvider(p.id);
+                  setCustomPath(null);
+                  setCustomName("");
+                  setArchives(false);
+                  setError("");
+                }}
+              />
+              <Provider name={p.id} />
+              <strong>{p.label}</strong>
+            </label>
+          ))}
         </div>
-        <label className="field">
-          Connection name
-          <input
-            required
-            maxLength={100}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
-
-        <label className="field">
-          Sessions directory
-          <input
-            required
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="C:\Users\you\.codex\sessions"
-          />
-        </label>
-        <div className="info-box">
-          Reads local transcripts every 3 seconds. Only sessions identified as
-          Codex Desktop are included. This adapter depends on the local
-          transcript format; cloud-only chats are unavailable.
+        <div className="connection-ready" role="status">
+          {duplicate ? (
+            <>
+              <Check size={18} />
+              <span>
+                <strong>Already connected</strong>
+                <small>{duplicate.name}</small>
+              </span>
+            </>
+          ) : checked ? (
+            <>
+              <Check size={18} />
+              <span>
+                <strong>
+                  {checked.matching_sessions} conversation
+                  {checked.matching_sessions === 1 ? "" : "s"} found
+                </strong>
+                <small>
+                  {archives
+                    ? "Archived conversations"
+                    : "On this computer · All projects"}
+                </small>
+              </span>
+            </>
+          ) : (
+            <span>
+              {check.isFetching || checkedPath !== path || defaults.isPending
+                ? "Looking for conversations…"
+                : "No readable source found. Choose a folder below."}
+            </span>
+          )}
         </div>
-        {error && (
+        <details className="connection-advanced">
+          <summary>{isClaude ? "Another profile or folder" : "Another profile or archived conversations"}</summary>
+          <p>
+            Most people need one connection per app. Use this for a separate
+            local profile or accessible WSL folder. {isClaude ? "The projects folder includes conversations and subagents across projects." : "You can also connect archived conversations."}
+          </p>
+          {!isClaude && <label className="archive-choice">
+            <input
+              type="checkbox"
+              checked={archives}
+              onChange={(e) => {
+                setArchives(e.target.checked);
+                setCustomPath(null);
+              }}
+            />{" "}
+            Archived conversations (separate connection)
+          </label>}
+          {sources.length > 0 && (
+            <label className="field">
+              Detected folder
+              <select
+                aria-label="Detected source"
+                value={
+                  sources.some((s) => s.path === path)
+                    ? path
+                    : ""
+                }
+                onChange={(e) => {
+                  setCustomPath(e.target.value);
+                  setArchives(
+                    sources.find(
+                      (s) => s.path === e.target.value,
+                    )?.archived ?? false,
+                  );
+                }}
+              >
+                <option value="">Custom folder</option>
+                {sources.map((s) => (
+                  <option key={s.path} value={s.path}>
+                    {s.archived ? "Archive" : "Local profile"} · {s.path}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="field">
+            Sessions directory
+            <input
+              value={path}
+              onChange={(e) => {
+                setCustomPath(e.target.value);
+                if (/archived_sessions[\\/]?$/i.test(e.target.value))
+                  setArchives(true);
+                else if (/sessions[\\/]?$/i.test(e.target.value))
+                  setArchives(false);
+              }}
+              placeholder={isClaude ? "Path to your Claude projects folder" : "Path to your Codex sessions folder"}
+            />
+          </label>
+          <label className="field">
+            Connection name
+            <input
+              maxLength={100}
+              value={customName}
+              placeholder={name}
+              onChange={(e) => setCustomName(e.target.value)}
+            />
+          </label>
+          <button
+            className="secondary"
+            type="button"
+            disabled={!checkedPath || checkedPath !== path || check.isFetching}
+            onClick={() => void check.refetch()}
+          >
+            Check source
+          </button>
+          {checked && (
+            <p>
+              {sourceSummary(provider, checked.counts)}
+            </p>
+          )}
+        </details>
+        {!duplicate && checked?.matching_sessions === 0 && (
+          <p className="setup-note">
+            No {providerLabel(provider)} conversations yet. Connect now to watch
+            for new ones, or choose another folder above.
+          </p>
+        )}
+        {(error || defaults.error || (checkedPath === path && check.error)) && (
           <div className="error" role="alert">
-            {error}
+            {error || defaults.error?.message || check.error?.message}
           </div>
         )}
         <div className="modal-footer">
           <button className="secondary" type="button" onClick={close}>
             Cancel
           </button>
-          <button className="primary" disabled={busy || !name.trim()}>
-            {busy ? "Adding…" : "Add connection"}
+          <button
+            className="primary"
+            disabled={busy || !checked || !!duplicate}
+          >
+            {busy ? "Connecting…" : duplicate ? "Already connected" : "Connect"}
             <ArrowRight size={15} />
           </button>
         </div>
@@ -226,19 +416,54 @@ export function Connections({
   refresh,
   notify,
   add,
+  removed,
 }: {
   items: Connection[];
   refresh: () => void;
   notify: (s: string) => void;
   add: () => void;
+  removed: (id: string) => void;
 }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  async function run(c: Connection, action: "sync" | "toggle") {
+  const [diagnostics, setDiagnostics] = useState<Record<string, string>>({});
+  const [deleting, setDeleting] = useState<Connection | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  async function removeConnection() {
+    if (!deleting) return;
+    setBusy(deleting.id);
+    setDeleteError("");
+    try {
+      await api(`/connections/${deleting.id}`, { method: "DELETE" });
+      removed(deleting.id);
+      setDeleting(null);
+      notify(
+        "Connection and imported records deleted. Original conversations are unchanged.",
+      );
+      refresh();
+    } catch (e) {
+      setDeleteError((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+  async function run(c: Connection, action: "sync" | "toggle" | "check") {
     setBusy(c.id);
     setError("");
     try {
-      if (action === "toggle")
+      if (action === "check") {
+        const result = await api<{
+          matching_sessions: number;
+          counts: Record<string, number>;
+        }>(
+          "/connections/check",
+          json("POST", { provider: c.provider, path: c.path }),
+        );
+        setDiagnostics((previous) => ({
+          ...previous,
+          [c.id]: `${result.matching_sessions} matching sessions. ${sourceSummary(c.provider, result.counts)}`,
+        }));
+      } else if (action === "toggle")
         await api(
           `/connections/${c.id}`,
           json("PATCH", { enabled: !c.enabled }),
@@ -248,7 +473,7 @@ export function Connections({
           method: "POST",
         });
         if (result.error) throw new Error(result.error);
-        notify("Codex sync completed.");
+        notify(`${providerLabel(c.provider)} sync completed.`);
       }
       refresh();
     } catch (e) {
@@ -277,7 +502,15 @@ export function Connections({
               </span>
             </div>
             <h2>{c.name}</h2>
-            <p>Codex Desktop · Local transcript watcher</p>
+            <p>{providerLabel(c.provider)} · Local transcript watcher</p>
+            <p>{c.session_count ?? 0} sessions imported</p>
+            {c.session_count === 0 && c.last_sync && (
+              <div className="info-box">
+                No conversations imported yet. Check the source to see whether
+                this folder contains {providerLabel(c.provider)} sessions.
+              </div>
+            )}
+            {diagnostics[c.id] && <p role="status">{diagnostics[c.id]}</p>}
             <div className="connection-detail">
               <span>SOURCE</span>
               <code>{c.path}</code>
@@ -288,6 +521,13 @@ export function Connections({
             </div>
             {c.error && <div className="error">{c.error}</div>}
             <div className="connection-actions">
+              <button
+                className="secondary"
+                disabled={busy === c.id}
+                onClick={() => run(c, "check")}
+              >
+                Check source
+              </button>
               <button
                 className="secondary"
                 disabled={busy === c.id || !c.enabled}
@@ -304,6 +544,16 @@ export function Connections({
                 {c.enabled ? <Pause size={15} /> : <Play size={15} />}
                 {c.enabled ? "Pause" : "Resume"}
               </button>
+              <button
+                className="secondary delete-connection"
+                disabled={!!busy}
+                onClick={() => {
+                  setDeleteError("");
+                  setDeleting(c);
+                }}
+              >
+                <Trash2 size={15} aria-hidden="true" /> Delete
+              </button>
             </div>
           </section>
         ))}
@@ -312,16 +562,67 @@ export function Connections({
             <Plus size={24} />
           </span>
           <strong>Add a connection</strong>
-          <small>Another desktop or local profile</small>
+          <small>Desktop, CLI, or another local profile</small>
         </button>
       </div>
+      {deleting && (
+        <Modal
+          close={() => {
+            if (!busy) setDeleting(null);
+          }}
+        >
+          <div className="modal-heading">
+            <div>
+              <h2 id="dialog-title">Delete connection?</h2>
+              <p className="delete-connection-name">{deleting.name}</p>
+            </div>
+          </div>
+          <div className="delete-connection-body">
+            <p>
+              This removes this connection and all its imported conversations,
+              messages, tool records, and sync checkpoints from Relay.
+            </p>
+            <p>
+              <strong>
+                Your original conversations and transcript files will not
+                be deleted.
+              </strong>{" "}
+              Other connections are unaffected.
+            </p>
+            <p>
+              You can add this source again to re-import its available history.
+            </p>
+            {deleteError && (
+              <div className="error" role="alert">
+                {deleteError}
+              </div>
+            )}
+          </div>
+          <div className="modal-footer delete-dialog-footer">
+            <button
+              className="secondary"
+              disabled={!!busy}
+              onClick={() => setDeleting(null)}
+            >
+              Cancel
+            </button>
+            <button
+              className="danger-button"
+              disabled={!!busy}
+              onClick={() => void removeConnection()}
+            >
+              {busy ? "Deleting…" : "Delete connection"}
+            </button>
+          </div>
+        </Modal>
+      )}
       <div className="capabilities panel">
         <h2>What’s available in this version</h2>
         <div>
           <Check size={17} />
           <p>
-            <strong>Codex Desktop</strong> — local chat messages and tool calls
-            where recorded, refreshed automatically.
+            <strong>Codex Desktop, Codex CLI, and Claude Code</strong> — local chat messages
+            and tool calls where recorded, refreshed automatically.
           </p>
         </div>
         <div>

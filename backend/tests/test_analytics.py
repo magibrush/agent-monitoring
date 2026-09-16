@@ -14,6 +14,47 @@ def client():
     return TestClient(main.app, base_url="http://localhost")
 
 
+def test_conversation_composition_matches_totals_and_filters(store):
+    real, other, review = seed(store)
+    c = client()
+    for filters in [{}, {'action': 'deletion'}, {'session_ids': real}, {'start': '2026-09-15T10:01:00Z', 'end': '2026-09-15T10:02:00Z'}]:
+        data = c.get('/api/metrics', params={**filters, 'conversations': True, 'interval': 60}).json()
+        assert review not in [s['id'] for s in data['conversation_series']]
+        for row in data['series']:
+            assert sum(s['actions'] for s in row['conversations']) == row['actions']
+            assert sum(s['messages'] for s in row['conversations']) == row['user'] + row['assistant']
+    plain = c.get('/api/metrics').json()
+    assert not plain['conversation_series']
+    assert all('conversations' not in row for row in plain['series'])
+
+
+def test_conversation_overflow_and_zoom_keep_identity(store):
+    with store() as db:
+        conn = Connection(name='Many sessions', provider='codex_cli')
+        db.add(conn); db.flush()
+        for i in range(12):
+            session = ChatSession(connection_id=conn.id, external_id=str(i), title=f'Session {i}', created_at='2026-09-15T10:00:00+00:00', updated_at='2026-09-15T10:00:00+00:00', source='cli')
+            db.add(session); db.flush()
+            add_event(db,session,'message','message','user','Hello','2026-09-15T10:00:10+00:00',{})
+        db.commit()
+    c = client()
+    data = c.get('/api/metrics', params={'conversations': True}).json()
+    assert len(data['conversation_series']) == 9
+    assert sum(s['messages'] for row in data['series'] for s in row['conversations'] if s['id']=='other') == 4
+    zoom = c.get('/api/metrics', params={'conversations': True, 'view_start': '2026-09-15T10:00:00Z', 'view_end': '2026-09-15T10:01:00Z'}).json()
+    assert zoom['conversation_series'] == data['conversation_series']
+
+
+def test_viewport_end_is_exclusive_in_bars_and_inspector(store):
+    real, *_ = seed(store)
+    c = client()
+    window = {'start': '2026-09-15T10:00:00Z', 'end': '2026-09-15T10:01:02Z'}
+    data = c.get('/api/metrics', params={'conversations': True, 'view_start': window['start'], 'view_end': window['end']}).json()
+    sessions = c.get('/api/sessions', params=window).json()['items']
+    assert sum(r['actions'] for r in data['series']) == sum(s['actions'] for s in sessions) == 0
+    assert sum(r['user'] + r['assistant'] for r in data['series']) == sum(s['messages'] for s in sessions) == 2
+
+
 def seed(store):
     with store() as db:
         c = Connection(name="Test desktop", provider="codex")

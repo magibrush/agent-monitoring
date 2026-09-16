@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, case, func, or_, select
 
 from backend.db import ChatSession, Connection, Event
+from backend.providers import PROVIDERS
 
 router = APIRouter(prefix="/api")
 # Keep the factory replaceable by the application's tests.
@@ -81,7 +82,7 @@ def action_filters(f):
 
 
 def selected_sessions(f):
-    conditions = [Connection.provider == "codex"]
+    conditions = [Connection.provider.in_(PROVIDERS)]
     if not f.include_internal:
         conditions.append(ChatSession.session_type != "internal_review")
     if f.session_type:
@@ -137,7 +138,7 @@ INTERVALS = [(60, "1 minute"), (300, "5 minutes"), (900, "15 minutes"), (3600, "
 
 
 @router.get("/metrics")
-def metrics(f: Filters = Depends(), interval: int = Query(0, ge=0), view_start: str = "", view_end: str = ""):
+def metrics(f: Filters = Depends(), interval: int = Query(0, ge=0), view_start: str = "", view_end: str = "", conversations: bool = False):
     if interval and interval not in dict(INTERVALS):
         raise HTTPException(422, "Unsupported bucket interval.")
     selected = selected_sessions(f)
@@ -183,12 +184,12 @@ def metrics(f: Filters = Depends(), interval: int = Query(0, ge=0), view_start: 
         # Aggregate in SQL; at most 3 * number-of-buckets rows cross into Python.
         epoch = func.unixepoch(Event.occurred_at)
         bucket = epoch - ((epoch % seconds + seconds) % seconds)
-        grouped = db.execute(select(bucket, Event.role, Event.kind, func.count()).where(*conditions, Event.kind.in_(["message", "tool_call"]), Event.occurred_at >= datetime.fromtimestamp(low, timezone.utc).isoformat(), Event.occurred_at <= datetime.fromtimestamp(high, timezone.utc).isoformat()).group_by(bucket, Event.role, Event.kind)).all()
+        grouped = db.execute(select(bucket, Event.role, Event.kind, func.count()).where(*conditions, Event.kind.in_(["message", "tool_call"]), Event.occurred_at >= datetime.fromtimestamp(low, timezone.utc).isoformat(), Event.occurred_at < datetime.fromtimestamp(high, timezone.utc).isoformat()).group_by(bucket, Event.role, Event.kind)).all()
         for stamp, role, kind, count in grouped:
             row = slots.get(stamp * 1000)
             if row is not None:
                 row["actions" if kind == "tool_call" else "user" if role == "user" else "assistant"] += count
-        tool_rows = db.execute(select(bucket, Event.tool_name, func.count()).where(*conditions, Event.kind == "tool_call", Event.occurred_at >= datetime.fromtimestamp(low, timezone.utc).isoformat(), Event.occurred_at <= datetime.fromtimestamp(high, timezone.utc).isoformat()).group_by(bucket, Event.tool_name)).all()
+        tool_rows = db.execute(select(bucket, Event.tool_name, func.count()).where(*conditions, Event.kind == "tool_call", Event.occurred_at >= datetime.fromtimestamp(low, timezone.utc).isoformat(), Event.occurred_at < datetime.fromtimestamp(high, timezone.utc).isoformat()).group_by(bucket, Event.tool_name)).all()
         for row in rows:
             row["tools"] = []
         for stamp, name, amount in tool_rows:
@@ -197,14 +198,31 @@ def metrics(f: Filters = Depends(), interval: int = Query(0, ge=0), view_start: 
         for row in rows:
             row["tools"].sort(key=lambda item: (-item["count"], item["name"]))
         tools = db.execute(select(base.c.tool_name, func.count()).where(base.c.kind == "tool_call").group_by(base.c.tool_name).order_by(func.count().desc()).limit(8)).all()
-        return {"sessions": active, "messages": counts.get("message", 0), "questions": roles.get("user", 0), "answers": roles.get("assistant", 0), "actions": counts.get("tool_call", 0), "series": rows, "interval_seconds": seconds, "interval_label": dict(INTERVALS)[seconds], "interval_adjusted": False, "window_limited": window_limited, "domain": domain, "viewport": {"start": datetime.fromtimestamp(low, timezone.utc).isoformat(), "end": datetime.fromtimestamp(high, timezone.utc).isoformat()}, "tools": [{"name": t or "Unknown tool", "count": n} for t, n in tools]}
+        conversation_info = []
+        if conversations:
+            # Fixed across the full selected scope, not re-ranked on zoom.
+            top = list(db.scalars(select(base.c.session_id).where(base.c.kind.in_(["message", "tool_call"])).group_by(base.c.session_id).order_by(func.count().desc(), base.c.session_id).limit(8)))
+            if top:
+                for session, connection in db.execute(select(ChatSession, Connection).join(Connection).where(ChatSession.id.in_(top)).order_by(ChatSession.id)):
+                    conversation_info.append({"id": session.id, "title": session.title, "provider": connection.provider, "connection_name": connection.name})
+            conversation_info.append({"id": "other", "title": "Other conversations", "provider": "", "connection_name": ""})
+            identity = case((Event.session_id.in_(top), Event.session_id), else_="other")
+            composition = db.execute(select(bucket, identity, Event.kind, func.count()).where(*conditions, Event.kind.in_(["message", "tool_call"]), Event.occurred_at >= datetime.fromtimestamp(low, timezone.utc).isoformat(), Event.occurred_at < datetime.fromtimestamp(high, timezone.utc).isoformat()).group_by(bucket, identity, Event.kind)).all()
+            by_slot = {}
+            for stamp, identity_, kind, amount in composition:
+                key = (stamp * 1000, identity_)
+                item = by_slot.setdefault(key, {"id": identity_, "actions": 0, "messages": 0})
+                item["actions" if kind == "tool_call" else "messages"] += amount
+            for row in rows:
+                row["conversations"] = [by_slot[(row["time"], item["id"])] for item in conversation_info if (row["time"], item["id"]) in by_slot]
+        return {"conversation_series": conversation_info, "sessions": active, "messages": counts.get("message", 0), "questions": roles.get("user", 0), "answers": roles.get("assistant", 0), "actions": counts.get("tool_call", 0), "series": rows, "interval_seconds": seconds, "interval_label": dict(INTERVALS)[seconds], "interval_adjusted": False, "window_limited": window_limited, "domain": domain, "viewport": {"start": datetime.fromtimestamp(low, timezone.utc).isoformat(), "end": datetime.fromtimestamp(high, timezone.utc).isoformat()}, "tools": [{"name": t or "Unknown tool", "count": n} for t, n in tools]}
 
 
 @router.get("/sessions/{id_}/events")
 def events(id_: str, f: Filters = Depends(), offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=200), kind: str = "", include_context: bool = False, anchor: int | None = None):
     with store() as db:
         session = db.get(ChatSession, id_)
-        if not session or db.get(Connection, session.connection_id).provider != "codex":
+        if not session or db.get(Connection, session.connection_id).provider not in PROVIDERS:
             raise HTTPException(404, "Session not found.")
         query = select(Event).where(Event.session_id == id_, *time_filters(f))
         if not include_context:

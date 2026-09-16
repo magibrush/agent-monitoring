@@ -1,6 +1,7 @@
 """Read-only adapters. Source apps are never resumed, modified, or controlled."""
 import hashlib
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -8,8 +9,80 @@ from sqlalchemy import select
 
 from backend.db import ChatSession, Checkpoint, Connection, Event, now
 from backend.normalization import message_content, action_category, session_type
+from backend.providers import PROVIDERS, codex_source
 
 MAX_RECORD_BYTES = 50 * 1024 * 1024
+logger = logging.getLogger(__name__)
+
+
+def source_root(path, provider="codex"):
+    root = Path(path).expanduser().resolve()
+    # Accept a Codex home folder as well as the sessions directory.
+    child = "projects" if provider == "claude_code" else "sessions"
+    if (root / child).is_dir():
+        root = root / child
+    if not root.is_dir():
+        raise ValueError("Session directory is unavailable. Check the path and permissions.")
+    return root
+
+
+def transcript_paths(root):
+    for path in sorted(root.rglob("*.jsonl")):
+        if path.resolve().is_relative_to(root):
+            yield path
+
+
+def read_metadata(stream, path):
+    first = stream.readline(MAX_RECORD_BYTES + 1)
+    if len(first) > MAX_RECORD_BYTES:
+        raise ValueError(f"Oversized transcript record in {path.name}")
+    if not first.endswith(b"\n"):
+        return None, None
+    try:
+        record = json.loads(first)
+        metadata = record.get("payload")
+        if record.get("type") != "session_meta" or not isinstance(metadata, dict):
+            raise ValueError("Invalid metadata")
+    except (ValueError, AttributeError):
+        raise ValueError(f"Unrecognized Codex metadata in {path.name}")
+    return metadata, hashlib.sha256(first).hexdigest()
+
+
+def complete_records(stream, path, offset):
+    """Shared bounded JSONL reader; incomplete final writes are retried."""
+    stream.seek(offset)
+    for _ in range(5000):
+        start = stream.tell()
+        line = stream.readline(MAX_RECORD_BYTES + 1)
+        if len(line) > MAX_RECORD_BYTES:
+            raise ValueError(f"Oversized transcript record in {path.name}")
+        if not line or not line.endswith(b"\n"):
+            break
+        try:
+            record = json.loads(line)
+            if not isinstance(record, dict):
+                raise ValueError("Invalid record")
+        except ValueError:
+            raise ValueError(f"Invalid JSON record in {path.name} at byte {start}")
+        yield start, stream.tell(), record
+
+
+def inspect_source(path, provider):
+    if provider == "claude_code":
+        from backend.claude_code import inspect_claude
+        return inspect_claude(path)
+    counts = {"desktop": 0, "cli": 0, "unknown": 0, "pending": 0}
+    for transcript in transcript_paths(source_root(path)):
+        with transcript.open("rb") as stream:
+            metadata, _ = read_metadata(stream, transcript)
+        counts["pending" if metadata is None else codex_source(metadata) or "unknown"] += 1
+    return {"counts": counts, "matching_sessions": counts[PROVIDERS[provider].source]}
+
+
+def sync_connection(db, connection):
+    from backend.claude_code import sync_claude
+    adapter = {"codex": sync_codex, "claude_code": sync_claude}[PROVIDERS[connection.provider].adapter]
+    return adapter(db, connection)
 
 
 def timestamp(value, fallback=None):
@@ -54,9 +127,8 @@ def add_event(db, session, external_id, kind, role, text, time, payload, tool_na
 
 
 def sync_codex(db, connection):
-    root = Path(connection.path).expanduser().resolve()
-    if not root.is_dir():
-        raise ValueError("Session directory is unavailable. Check the path and permissions.")
+    root = source_root(connection.path)
+    expected_source = PROVIDERS[connection.provider].source
     count = 0
     titles = {}
     # Optional Desktop index: names are better than injected setup messages.
@@ -70,32 +142,28 @@ def sync_codex(db, connection):
                         titles[entry.get("id")] = entry["thread_name"]
                 except ValueError:
                     continue
-    for path in sorted(root.rglob("*.jsonl")):
-        if not path.resolve().is_relative_to(root):
-            continue
+    unknown = 0
+    for path in transcript_paths(root):
         checkpoint = db.scalar(select(Checkpoint).where(Checkpoint.connection_id == connection.id, Checkpoint.path == str(path)))
-        if checkpoint is None:
-            checkpoint = Checkpoint(connection_id=connection.id, path=str(path), offset=0)
-            db.add(checkpoint)
         with path.open("rb") as stream:
-            first = stream.readline(MAX_RECORD_BYTES + 1)
-            if not first.endswith(b"\n"):
+            metadata, prefix = read_metadata(stream, path)
+            if metadata is None:
                 continue
-            prefix = hashlib.sha256(first).hexdigest()
-            if checkpoint.prefix_hash and (checkpoint.prefix_hash != prefix or path.stat().st_size < checkpoint.offset):
+            if checkpoint and checkpoint.prefix_hash and (checkpoint.prefix_hash != prefix or path.stat().st_size < checkpoint.offset):
                 raise ValueError(f"Transcript was replaced or truncated: {path.name}. Create a new connection to re-import it.")
-            try:
-                metadata = json.loads(first).get("payload", {})
-            except (ValueError, AttributeError):
-                raise ValueError(f"Unrecognized Codex metadata in {path.name}")
-            # 'vscode' alone also covers the extension; require Desktop provenance.
-            if "desktop" not in str(metadata.get("originator", "")).lower():
+            source = codex_source(metadata)
+            if source is None:
+                unknown += 1
+            if source != expected_source:
                 continue
+            if checkpoint is None:
+                checkpoint = Checkpoint(connection_id=connection.id, path=str(path), offset=0)
+                db.add(checkpoint)
             external = metadata.get("id") or metadata.get("session_id")
             if not external:
                 raise ValueError(f"Missing session identity in {path.name}")
             checkpoint.prefix_hash = prefix
-            session = get_session(db, connection, external, "Untitled session", timestamp(metadata.get("timestamp")), "desktop")
+            session = get_session(db, connection, external, "Untitled session", timestamp(metadata.get("timestamp")), source)
             session.session_type = session_type(metadata)
             session.parent_thread_id = metadata.get("parent_thread_id")
             if titles.get(external):
@@ -104,20 +172,9 @@ def sync_codex(db, connection):
                 first_message = db.scalar(select(Event.text).where(Event.session_id == session.id, Event.kind == "message", Event.role == "user").order_by(Event.id).limit(1))
                 session.title = first_message.strip().splitlines()[0][:120] if first_message else "Untitled session"
             checkpoint.session_id = session.id
-            stream.seek(checkpoint.offset)
-            for _ in range(5000):
-                offset = stream.tell()
-                line = stream.readline(MAX_RECORD_BYTES + 1)
-                if not line or not line.endswith(b"\n"):
-                    if len(line) > MAX_RECORD_BYTES:
-                        raise ValueError(f"Oversized transcript record in {path.name}")
-                    break  # An in-flight write is retried next poll.
-                try:
-                    record = json.loads(line)
-                    payload = record.get("payload", {})
-                    if not isinstance(payload, dict):
-                        raise ValueError("Invalid payload")
-                except (ValueError, AttributeError):
+            for offset, next_offset, record in complete_records(stream, path, checkpoint.offset):
+                payload = record.get("payload", {})
+                if not isinstance(payload, dict):
                     raise ValueError(f"Invalid JSON record in {path.name} at byte {offset}")
                 time = timestamp(record.get("timestamp"), session.created_at)
                 type_ = payload.get("type")
@@ -132,5 +189,7 @@ def sync_codex(db, connection):
                     elif type_ in ("function_call_output", "custom_tool_call_output"):
                         output = payload.get("output", "")
                         count += add_event(db, session, f"byte:{offset}", "tool_result", "tool", output if isinstance(output, str) else json.dumps(output), time, record)
-                checkpoint.offset = stream.tell()
+                checkpoint.offset = next_offset
+    if unknown:
+        logger.info("Connection %s skipped %s transcripts with unsupported provenance", connection.id, unknown)
     return count

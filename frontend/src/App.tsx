@@ -25,6 +25,7 @@ const number = (n = 0) => Intl.NumberFormat().format(n);
 
 export default function App() {
   const [page, setPage] = useState<Page>("Overview"),
+    [chartColorBy, setChartColorBy] = useState("activity"),
     [sessionType, setSessionType] = useState(""),
     [connection, setConnection] = useState(""),
     [range, setRange] = useState<Range>(FIT),
@@ -259,6 +260,13 @@ export default function App() {
               refresh={refresh}
               notify={setNotice}
               add={() => setAdding(true)}
+              removed={(id) => {
+                if (connection === id) setConnection("");
+                setSelected([]);
+                setOpened(null);
+                setOffset(0);
+                client.removeQueries({ queryKey: ["events"] });
+              }}
             />
           ) : (
             <>
@@ -453,7 +461,12 @@ export default function App() {
                 )}
               </div>
               {page === "Overview" && (
-                <Timeline key={metricKey} params={metricKey} />
+                <Timeline
+                  key={metricKey}
+                  params={metricKey}
+                  colorBy={chartColorBy}
+                  setColorBy={setChartColorBy}
+                />
               )}
               <div className={page === "Explorer" ? "explorer-layout" : ""}>
                 <section className="panel session-panel">
@@ -564,6 +577,15 @@ export default function App() {
                                     />
                                   </strong>
                                   <small>
+                                    <span
+                                      className={
+                                        page === "Overview"
+                                          ? "session-connection-mobile"
+                                          : "session-connection-inline"
+                                      }
+                                    >
+                                      {session.connection_name}
+                                    </span>
                                     {session.external_id.slice(0, 12)}
                                     <span className="source-tag">
                                       {session.session_type ===
@@ -644,7 +666,7 @@ export default function App() {
                       text={
                         hasFilters
                           ? "Try another range, search scope, or action filter."
-                          : "Connect Codex Desktop to start observing conversations."
+                          : "Connect Codex Desktop or Codex CLI to start observing conversations."
                       }
                       action={
                         hasFilters ? (
