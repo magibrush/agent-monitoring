@@ -7,6 +7,7 @@ test("CLI and Desktop share a source directory without mixing sessions", async (
   request,
 }) => {
   await page.goto("/");
+  await page.getByRole("button", { name: /^Connections/ }).click();
   await page
     .getByRole("button", { name: "Add connection", exact: true })
     .first()
@@ -19,7 +20,7 @@ test("CLI and Desktop share a source directory without mixing sessions", async (
   await page
     .getByLabel("Sessions directory")
     .fill(path.resolve("../data/e2e-mixed"));
-  await page.getByRole("button", { name: "Check source", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Check source", exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("status")).toContainText(
     "1 conversation found",
   );

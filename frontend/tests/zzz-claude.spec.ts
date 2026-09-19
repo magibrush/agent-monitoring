@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test("Claude Code setup, search, chart and Explorer", async ({ page, request }) => {
   await page.goto("/");
+  await page.getByRole("button", { name: /^Connections/ }).click();
   await page.getByRole("button", { name: "Add connection", exact: true }).first().click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("radio", { name: "Claude Code", exact: true }).check();
@@ -31,6 +32,7 @@ test("Claude Code setup, search, chart and Explorer", async ({ page, request }) 
   await page.screenshot({ path: "../data/qa/claude-explorer.png" });
   await page.getByRole("button", { name: "Overview", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: /^Connections/ }).click();
   await page.getByRole("button", { name: "Add connection", exact: true }).first().click();
   await dialog.getByRole("radio", { name: "Claude Code", exact: true }).check();
   await expect(dialog.getByRole("button", { name: "Already connected", exact: true })).toBeDisabled();

@@ -2,7 +2,7 @@
 import math
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from sqlalchemy import select
+from sqlalchemy import select, func
 from backend.db import SafetyEvaluation, SafetyAttempt
 
 
@@ -40,12 +40,13 @@ def summary(db):
     fields = [E.created_at, E.returned_at, E.admitted_at, E.first_started_at, E.review_ready_at,
               E.human_decision, E.decision, E.deadline, E.attempts,
               E.result["source"].as_string().label("source"), E.result["recommendation"].as_string().label("recommendation")]
-    jobs = [SimpleNamespace(**row) for row in db.execute(select(*fields).where(E.mode == "blocking", E.created_at >= since).order_by(E.created_at.desc()).limit(10001)).mappings()]
+    jobs = [SimpleNamespace(**row) for row in db.execute(select(*fields).where(E.mode == "blocking", E.debug_result.is_(None), E.created_at >= since).order_by(E.created_at.desc()).limit(10001)).mappings()]
     truncated = len(jobs) > 10000
     jobs = jobs[:10000]
     automatic = [j for j in jobs if not j.review_ready_at and not j.human_decision and j.recommendation != "review"]
     return {
         "window_hours": 24, "requests": len(jobs), "truncated": truncated,
+        "debug_requests": db.scalar(select(func.count()).select_from(E).where(E.mode == "blocking", E.debug_result.is_not(None), E.created_at >= since)),
         "automatic_pause": percentiles(duration(j.created_at, j.returned_at) for j in automatic),
         "automatic_paths": {path: percentiles(duration(j.created_at, j.returned_at) for j in automatic
             if ("rules" if j.source == "rules" else "judge" if j.attempts else "infrastructure") == path)

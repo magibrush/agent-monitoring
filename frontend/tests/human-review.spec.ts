@@ -23,7 +23,7 @@ for (const choice of ["approve", "deny", "expired"] as const) {
       return route.fulfill({ json: { ...evaluation, status: "completed", human_decision: choice } });
     });
     await page.goto("/");
-    await page.getByRole("button", { name: "Safety", exact: true }).click();
+    await page.getByRole("button", { name: /^Safety(?: \d+ pending reviews)?$/ }).click();
     const queue = page.getByLabel("Awaiting human decisions");
     await expect(queue).toContainText("SYNTHETIC_REVIEW_ONLY");
     await expect(queue).toContainText("Confirm the destination");

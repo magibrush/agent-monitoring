@@ -20,7 +20,7 @@ import { ConnectionDialog, Connections, Empty, Provider } from "./ui";
 import { useSafetyNotifications } from "./useSafetyNotifications";
 import { SafetyWorkspace } from "./SafetyView";
 import { Timeline } from "./Timeline";
-import { FIT, TimeRange, type Range } from "./TimeRange";
+import { FIT, TimeRange, rangeQuery, type Range } from "./TimeRange";
 import { ACTIONS, Conversation, Highlight } from "./Conversation";
 
 type Page = "Overview" | "Safety" | "Explorer" | "Connections";
@@ -108,8 +108,7 @@ export default function App() {
   ]);
   const params = new URLSearchParams({
     connection,
-    start: range.start,
-    end: range.end,
+    ...rangeQuery(range),
     q: query,
     search_mode: mode,
     search_scope: scope,
@@ -268,10 +267,10 @@ export default function App() {
               </h1>
               {page === "Safety" && <p className="safety-subtitle">Review tool decisions and manage protection.</p>}
             </div>
-            <button className="primary" onClick={() => setAdding(true)}>
+            {page === "Connections" && <button className="primary" onClick={() => setAdding(true)}>
               <Plus size={16} />
               Add connection
-            </button>
+            </button>}
           </div>
           {notice && (
             <div className="notice" role="status">
@@ -659,14 +658,7 @@ export default function App() {
                           <button className="secondary" onClick={clearFilters}>
                             Reset filters
                           </button>
-                        ) : (
-                          <button
-                            className="secondary"
-                            onClick={() => setAdding(true)}
-                          >
-                            Add connection
-                          </button>
-                        )
+                        ) : undefined
                       }
                     />
                   )}
@@ -719,15 +711,7 @@ export default function App() {
                 )}
               </div>
               }
-              <div className="workspace-footer">
-                <span>
-                  <span className="status-dot" />
-                  {connections.data?.filter((c) => c.status === "watching")
-                    .length ?? 0}{" "}
-                  connections watching · refreshes every 2s
-                </span>
-                <span>Protection is configured per connection</span>
-              </div>
+
             </>
           )}
         </main>

@@ -4,8 +4,14 @@ export interface Range {
   start: string;
   end: string;
   label: string;
+  lastSeconds?: number;
 }
 export const FIT: Range = { start: "", end: "", label: "All time" };
+export const rangeQuery = (range: Range) => ({
+  start: range.lastSeconds ? "" : range.start,
+  end: range.lastSeconds ? "" : range.end,
+  last_seconds: String(range.lastSeconds ?? 0),
+});
 const localValue = (value: string) => {
   if (!value) return "";
   const d = new Date(value);
@@ -38,15 +44,22 @@ export function TimeRange({
       start: new Date(end.getTime() - hours * 3600000).toISOString(),
       end: end.toISOString(),
       label,
+      lastSeconds: hours * 3600,
     });
   }
   return (
-    <details className="range-picker" ref={details}>
+    <details className="range-picker" ref={details} onToggle={() => {
+      if (details.current?.open && value.lastSeconds) {
+        const now = Date.now();
+        setStart(localValue(new Date(now - value.lastSeconds * 1000).toISOString()));
+        setEnd(localValue(new Date(now).toISOString()));
+      }
+    }}>
       <summary>
         <CalendarDays size={15} />
         <span
           title={
-            value.start
+            value.lastSeconds ? `${value.label} · updates live` : value.start
               ? `${new Date(value.start).toLocaleString()} — ${new Date(value.end).toLocaleString()}`
               : "All recorded activity"
           }

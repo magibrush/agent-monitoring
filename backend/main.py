@@ -291,6 +291,18 @@ def safety_status():
         return status(db)
 
 
+class SafetyDebugUpdate(BaseModel):
+    enabled: bool = Field(strict=True)
+    result: Literal["allow", "review", "deny"] = "review"
+
+
+@app.put("/api/safety/debug")
+def update_safety_debug(body: SafetyDebugUpdate):
+    from backend.safety_debug import update as update_debug
+    with SessionLocal() as db:
+        return update_debug(db, body.enabled, body.result)
+
+
 @app.get("/api/safety/evaluations/{id_}")
 def safety_evaluation(id_: str):
     from backend.safety import public
@@ -309,6 +321,7 @@ def retry_evaluation(id_: str):
     from backend.safety import public, MAX_PENDING
     from backend.safety_policy import POLICY_VERSION, MODEL
     from uuid import uuid4
+    from backend.safety_debug import selected_result
     with lock, SessionLocal() as db:
         original = db.get(SafetyEvaluation, id_)
         if not original:
@@ -319,8 +332,10 @@ def retry_evaluation(id_: str):
         if pending >= MAX_PENDING:
             raise HTTPException(429, "Evaluation queue is full.")
         # Review historical evidence, never revive the old hook authorization.
+        debug_result = selected_result(db) if original.rules.get("decision") != "deny" else None
         job = SafetyEvaluation(event_id=original.event_id, input_hash=original.input_hash, request_key=str(uuid4()),
-            mode="shadow", policy_version=POLICY_VERSION, model=MODEL, snapshot=original.snapshot,
+            mode="shadow", policy_version=POLICY_VERSION, model="debug" if debug_result else MODEL,
+            debug_result=debug_result, snapshot=original.snapshot,
             rules=original.rules, diagnostics={"retry_of": original.id})
         db.add(job)
         db.commit()
@@ -345,6 +360,8 @@ def review_evaluation(id_: str, body: HumanReview):
 
 from backend.analytics import router
 app.include_router(router)
+from backend.policies import router as policy_router
+app.include_router(policy_router)
 
 
 dist = ROOT / "frontend/dist"

@@ -32,9 +32,13 @@ Audit, incident correlation, retrospective evaluation and policy-impact analysis
 
 Initial performance hypotheses: deterministic p95 under 100 ms including hook overhead where feasible; automatic gate-pause p95 under five seconds by path; human reviews presented with at least 30 seconds remaining. These are targets, not measured guarantees. Track p99, missing receipts, failures and expiry alongside percentiles to avoid success-only reporting. The browser polling/OS notification delay still consumes part of the human window.
 
-## Later milestones (not authorized for this implementation)
+## Milestone 3: Narrow fast approvals
 
-3. Structured dynamic policy editor: project/agent scope, typed operation, canonical resource boundary, allow/review/deny, explicit precedence and protected prohibitions. Version, author, conflict checking, local historical impact preview, shadow trials, controlled activation and rollback. Policies outside agent write authority. Human approval never automatically becomes a permanent rule. Shell prefixes are insufficient proof of bounded effects.
+Implemented as rules-first local policies with all/selected connection scopes; typed file, shell, Git-push, credential, network and exact-tool activities; conflict notices; historical previews; optional observational live tests; explicit application and history-based rollback. Normalization is separate from matching and lifecycle. Fast approvals are limited to supported file reads with explicit connection, directory and extension scope. Matching requests bypass the queue and model; no-match requests retain existing judging. See [the policy guide](policies.md) for boundaries and operating instructions. Multi-user authenticated authorship and a policy store outside the monitored OS account remain future work.
+
+## Later milestones
+
+Human approval never automatically becomes a permanent rule. Shell prefixes are insufficient proof of bounded effects.
 
 4. Operator triage: Decide now, Investigate, Protection. Order reviews by urgency; group incidents without bulk authorizing requests. Distinguish historical unassessed imports from expected-but-missing protection. Add authenticated ownership, assignment, audit and service-backed alerts independent of an open browser. Incident acknowledgment never releases a request.
 

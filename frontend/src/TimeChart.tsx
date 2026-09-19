@@ -54,7 +54,7 @@ export function useTimeChart(params: string, conversations = false, onViewportCh
     narrow.set("start", bucket === null ? data.viewport.start : new Date(Math.max(bucket, Date.parse(data.viewport.start))).toISOString());
     narrow.set("end", bucket === null ? data.viewport.end : new Date(Math.min(bucket + data.interval_seconds * 1000, Date.parse(data.viewport.end))).toISOString());
   }
-  return { result, overview, data, interval, setInterval, bucket, setBucket, drag, setDrag, finishDrag, windowTo, change, reset, zoomed, narrow, canZoomOut, onContextMenu };
+  return { result, overview, data, viewport, interval, setInterval, bucket, setBucket, drag, setDrag, finishDrag, windowTo, change, reset, zoomed, narrow, canZoomOut, onContextMenu };
 }
 export type TimeChartState = ReturnType<typeof useTimeChart>;
 

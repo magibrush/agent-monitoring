@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 from sqlalchemy import and_, case, func, or_, select
 
 from backend.db import ChatSession, Connection, Event
@@ -23,6 +23,7 @@ def dump(model):
 
 
 class Filters(BaseModel):
+    _rolling_bounds: tuple | None = PrivateAttr(default=None)
     provider: str = ""
     connection: str = ""
     q: str = Field("", max_length=200)
@@ -32,6 +33,7 @@ class Filters(BaseModel):
     start: str = ""
     end: str = ""
     days: int = Field(0, ge=0, le=3650)
+    last_seconds: int = Field(0, ge=0, le=31536000)
     action: Literal["", "any", "deletion", "file_write", "read", "shell", "network", "other"] = ""
     tool: str = Field("", max_length=200)
     include_internal: bool = False
@@ -47,6 +49,12 @@ def instant(value):
 
 
 def bounds(f):
+    if f.last_seconds and not f.start and not f.end:
+        # Resolve once per request so totals, buckets and session selection agree.
+        if f._rolling_bounds is None:
+            end = datetime.now(timezone.utc)
+            f._rolling_bounds = (end - timedelta(seconds=f.last_seconds), end)
+        return f._rolling_bounds
     start = instant(f.start) if f.start else (datetime.now(timezone.utc) - timedelta(days=f.days) if f.days else None)
     end = instant(f.end) if f.end else None
     if start and end and start >= end:

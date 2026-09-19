@@ -71,7 +71,7 @@ export interface SafetyEvaluation {
   attempts: number;
   latency_ms: number | null;
   error: string | null;
-  rules: { decision: string; findings: { id: string; reason: string }[] };
+  rules: { policy?: { version: number; reason: string; decision: string }; trial?: { version: number; reason: string; decision: string }; decision: string; findings: { id: string; reason: string }[] };
   gate: { decision: string; policy_version: string } | null;
   result: { recommendation: string; risk: string; reason: string; evidence: string[]; missing_context: string[]; source: string } | null;
   usage: { input_tokens?: number; output_tokens?: number } | null;
@@ -112,7 +112,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(
       typeof data?.detail === "string"
         ? data.detail
-        : `Request failed (${res.status}). Check your input and backend.`,
+        : Array.isArray(data?.detail) ? data.detail.slice(0, 4).map((item: { msg?: string }) => item.msg || "Invalid input").join("; ") : `Request failed (${res.status}). Check your input and backend.`,
     );
   }
   return res.json();

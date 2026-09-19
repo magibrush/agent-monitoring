@@ -17,6 +17,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   await expect(
     page.getByText("Start with a connection", { exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: /^Connections/ }).click();
   await page
     .getByRole("button", { name: "Add connection", exact: true })
     .first()
@@ -236,6 +237,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   await page.getByRole("button", { name: "Overview", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByLabel("Clear search", { exact: true }).click();
+  await page.getByRole("button", { name: /^Connections/ }).click();
   await page
     .getByRole("button", { name: "Add connection", exact: true })
     .first()

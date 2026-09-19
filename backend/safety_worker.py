@@ -62,14 +62,18 @@ def bounded_evaluate(job, key, target=_judge_process):
 
 def run_one(factory=SessionLocal, evaluator=None, blocking_only=False):
     key = safety.read_key()
-    if not key:
-        return False
-    job = safety.claim(factory, blocking_only=blocking_only)
+    job = safety.claim(factory, blocking_only=blocking_only, debug_only=not key)
     if job is None:
         return False
     started = time.monotonic()
     try:
-        verdict, usage = (evaluator or bounded_evaluate)(job, key)
+        if job.rules.get("decision") == "deny":
+            verdict, usage = {"recommendation": "deny", "risk": "high", "source": "rules", "reason": "Explicit policy prohibition.", "evidence": [], "missing_context": []}, {}
+        elif job.debug_result:
+            from backend.safety_debug import verdict as simulated_verdict
+            verdict, usage = simulated_verdict(job), {}
+        else:
+            verdict, usage = (evaluator or bounded_evaluate)(job, key)
         safety.finish(factory, job, result=verdict, usage=usage, latency_ms=int((time.monotonic() - started) * 1000))
     except judge.JudgeError as exc:
         safety.finish(factory, job, error=str(exc), retryable=exc.retryable, diagnostics=exc.diagnostics, latency_ms=int((time.monotonic() - started) * 1000))
@@ -102,7 +106,9 @@ def serve(workers=2):
             while not stop.is_set():
                 try:
                     with SessionLocal() as db:
-                        db.merge(SafetyWorker(id=worker_id, heartbeat_at=now(), status=("blocking_only" if workers == 1 else "ready") if safety.read_key() else "waiting_for_key"))
+                        from backend.safety_debug import settings
+                        configured = safety.read_key() or settings(db)["enabled"]
+                        db.merge(SafetyWorker(id=worker_id, heartbeat_at=now(), status=("blocking_only" if workers == 1 else "ready") if configured else "waiting_for_key"))
                         db.commit()
                 except Exception:
                     log.error("Safety worker heartbeat could not be saved; retrying.")

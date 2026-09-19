@@ -5,6 +5,7 @@ test("simple setup, archives, and conversation-colored bars", async ({
   request,
 }) => {
   await page.goto("/");
+  await page.getByRole("button", { name: /^Connections/ }).click();
   await page
     .getByRole("button", { name: "Add connection", exact: true })
     .first()
@@ -20,6 +21,7 @@ test("simple setup, archives, and conversation-colored bars", async ({
   );
   await page.screenshot({ path: "../data/qa/simple-setup.png" });
   await dialog.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: /^Connections/ }).click();
   await page
     .getByRole("button", { name: "Add connection", exact: true })
     .first()
@@ -40,6 +42,7 @@ test("simple setup, archives, and conversation-colored bars", async ({
   );
   await request.post(`/api/connections/${cli.id}/sync`);
   await request.post(`/api/connections/${desktop.id}/sync`);
+  await page.getByRole("button", { name: /^Connections/ }).click();
   await page
     .getByRole("button", { name: "Add connection", exact: true })
     .first()

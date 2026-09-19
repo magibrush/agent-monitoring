@@ -129,6 +129,7 @@ class SafetyEvaluation(Base):
     reviewed_at: Mapped[str | None] = mapped_column(String(40))
     policy_version: Mapped[str] = mapped_column(String(40))
     model: Mapped[str] = mapped_column(String(100))
+    debug_result: Mapped[str | None] = mapped_column(String(10))
     status: Mapped[str] = mapped_column(String(30), default="queued")
     snapshot: Mapped[dict] = mapped_column(JSON)
     rules: Mapped[dict] = mapped_column(JSON)
@@ -150,11 +151,49 @@ class SafetyEvaluation(Base):
     usage: Mapped[dict | None] = mapped_column(JSON)
 
 
+class PolicyVersion(Base):
+    __tablename__ = "policy_versions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    rules: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[str] = mapped_column(String(40), default=now)
+    previewed_at: Mapped[str | None] = mapped_column(String(40))
+    preview_result: Mapped[dict | None] = mapped_column(JSON)
+    trial_started_at: Mapped[str | None] = mapped_column(String(40))
+
+
+class PolicyState(Base):
+    __tablename__ = "policy_state"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    active_id: Mapped[int | None] = mapped_column(ForeignKey("policy_versions.id"))
+    trial_id: Mapped[int | None] = mapped_column(ForeignKey("policy_versions.id"))
+    draft_id: Mapped[int | None] = mapped_column(ForeignKey("policy_versions.id"))
+    paused_id: Mapped[int | None] = mapped_column(ForeignKey("policy_versions.id"))
+
+
+class PolicyChange(Base):
+    __tablename__ = "policy_changes"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    version_id: Mapped[int | None] = mapped_column(ForeignKey("policy_versions.id"))
+    action: Mapped[str] = mapped_column(String(30))
+    actor: Mapped[str] = mapped_column(String(40), default="local operator")
+    created_at: Mapped[str] = mapped_column(String(40), default=now)
+
+
 class SafetyWorker(Base):
     __tablename__ = "safety_workers"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     heartbeat_at: Mapped[str] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(40))
+
+
+class SafetyDebugSettings(Base):
+    __tablename__ = "safety_debug_settings"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    result: Mapped[str] = mapped_column(String(10), default="review")
+    updated_at: Mapped[str] = mapped_column(String(40), default=now)
 
 
 class SafetyAttempt(Base):

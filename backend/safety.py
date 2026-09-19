@@ -60,7 +60,54 @@ def enqueue(db, event, payload, gate=None, request=None):
         return existing
     rules_started = time.monotonic()
     rules = assess(payload)
+    built_in_deny = rules["decision"] == "deny"
+    from backend.policies import evaluate as evaluate_policy
+    from backend.db import ChatSession
+    connection_id = db.scalar(select(ChatSession.connection_id).where(ChatSession.id == event.session_id))
+    from backend.safety_debug import selected_result
+    debug_result = selected_result(db) if not built_in_deny else None
+    # Debug simulates the decision path, including custom-policy shortcuts.
+    if not debug_result:
+        rules = evaluate_policy(db, payload, connection_id, rules)
     rules_ms = round((time.monotonic() - rules_started) * 1000)
+    # Resolve deterministic policies before context gathering, queuing, or model access.
+    policy_match = rules.get("policy", {})
+    if not built_in_deny and policy_match.get("decision") in {"allow", "review", "deny"}:
+        safe_action = redact(raw)
+        if len(safe_action) <= 24000:
+            choice = policy_match["decision"]
+            stamp = now()
+            awaiting = bool(request and choice == "review")
+            overloaded = False
+            if awaiting:
+                owned = db.scalar(select(func.count()).select_from(SafetyEvaluation).join(Event).join(ChatSession).where(
+                    ChatSession.connection_id == connection_id, SafetyEvaluation.mode == "blocking",
+                    SafetyEvaluation.status.in_(["queued", "running", "awaiting_review"])))
+                overloaded = owned >= MAX_BLOCKING_PER_CONNECTION
+            job = SafetyEvaluation(event_id=event.id, input_hash=digest, request_key=request_key,
+                mode="blocking" if request else "shadow", deadline=deadline,
+                policy_version=f"{POLICY_VERSION}:p{policy_match['version']}", model="policy",
+                rules=rules, gate=gate, status="awaiting_review" if awaiting else "completed",
+                snapshot={"action": safe_action, "action_truncated": False, "context": [], "context_limitations": "Deterministic policy; no model context collected."},
+                result={"recommendation": choice, "risk": "unknown" if choice == "review" else "high" if choice == "deny" else "low", "reason": policy_match["reason"],
+                        "evidence": [f"Policy version {policy_match['version']}"], "missing_context": [], "source": "policy"},
+                admitted_at=stamp, rules_ms=rules_ms, completed_at=stamp, review_ready_at=stamp if awaiting else None,
+                decision=None if not request or awaiting else "pass" if choice == "allow" else "deny",
+                decision_at=stamp if request and not awaiting else None)
+            if request and request.get("requested_at"):
+                requested_at = datetime.fromisoformat(request["requested_at"]).astimezone(timezone.utc)
+                if not 0 < (datetime.fromisoformat(deadline) - requested_at).total_seconds() <= 60:
+                    raise ValueError("Invalid request timing")
+                job.created_at = requested_at.isoformat()
+            if request and deadline <= stamp:
+                job.status, job.decision, job.error, job.decision_at = "failed", "expired", "Hook deadline expired before intake.", stamp
+            if overloaded:
+                job.status, job.decision, job.error, job.decision_at = "skipped", "error", "Connection review capacity reached; action remains blocked.", stamp
+                job.review_ready_at = None
+            db.add(job)
+            return job
+        rules["decision"] = "review"
+        rules["policy"] = {**policy_match, "decision": "none", "reason": "Action is incomplete; judge required."}
     # Context is bounded and frozen at intake; later transcript backfill must not
     # silently change evidence underlying a decision.
     context = list(db.scalars(select(Event).where(Event.session_id == event.session_id,
@@ -90,7 +137,8 @@ def enqueue(db, event, payload, gate=None, request=None):
     status = "completed" if rules["decision"] == "deny" else ("skipped" if saturated else "queued")
     job = SafetyEvaluation(event_id=event.id, input_hash=digest, policy_version=POLICY_VERSION,
         request_key=request_key, mode="blocking" if request else "shadow", deadline=deadline,
-        model=MODEL, snapshot=snapshot, rules=rules, gate=gate, status=status,
+        model="debug" if debug_result else MODEL, debug_result=debug_result,
+        snapshot=snapshot, rules=rules, gate=gate, status=status,
         admitted_at=now(), rules_ms=rules_ms,
         result={"recommendation": "deny", "risk": "high", "reason": "Explicit policy prohibition.",
                 "evidence": [f["reason"] for f in rules["findings"]], "missing_context": [], "source": "rules"} if status == "completed" else None,
@@ -111,7 +159,7 @@ def enqueue(db, event, payload, gate=None, request=None):
     return job
 
 
-def claim(factory, blocking_only=False):
+def claim(factory, blocking_only=False, debug_only=False):
     """Atomic compare-and-set claim; works across processes, including SQLite."""
     instant = now()
     with factory() as db:
@@ -135,6 +183,7 @@ def claim(factory, blocking_only=False):
         db.commit()
         candidate = db.scalar(select(SafetyEvaluation.id).where(SafetyEvaluation.status == "queued",
             *([SafetyEvaluation.mode == "blocking"] if blocking_only else []),
+            *([SafetyEvaluation.debug_result.is_not(None)] if debug_only else []),
             SafetyEvaluation.available_at <= instant).order_by((SafetyEvaluation.mode == "blocking").desc(), SafetyEvaluation.deadline, SafetyEvaluation.created_at, SafetyEvaluation.id).limit(1))
         if candidate is None:
             return None
@@ -178,7 +227,7 @@ def finish(factory, job, *, result=None, error=None, retryable=False, latency_ms
 
 
 def public(job):
-    return {name: getattr(job, name) for name in ("id", "event_id", "request_key", "input_hash", "status", "policy_version", "model", "rules", "gate", "result", "error", "attempts", "created_at", "completed_at", "latency_ms", "usage", "mode", "deadline", "started_at", "decision", "decision_at", "returned_at", "diagnostics", "human_decision", "reviewed_at", "admitted_at", "first_started_at", "review_ready_at", "published_at", "rules_ms")}
+    return {name: getattr(job, name) for name in ("id", "event_id", "request_key", "input_hash", "debug_result", "status", "policy_version", "model", "rules", "gate", "result", "error", "attempts", "created_at", "completed_at", "latency_ms", "usage", "mode", "deadline", "started_at", "decision", "decision_at", "returned_at", "diagnostics", "human_decision", "reviewed_at", "admitted_at", "first_started_at", "review_ready_at", "published_at", "rules_ms")}
 
 
 def human_review(db, id_, choice, input_hash):
@@ -217,12 +266,13 @@ def expire(db):
 
 def status(db):
     from backend.safety_metrics import summary
+    from backend.safety_debug import settings
     counts = dict(db.execute(select(SafetyEvaluation.status, func.count()).group_by(SafetyEvaluation.status)).all())
     workers = list(db.scalars(select(SafetyWorker).where(SafetyWorker.heartbeat_at >= later(-30))))
     oldest = db.scalar(select(func.min(SafetyEvaluation.created_at)).where(SafetyEvaluation.status == "queued"))
     return {"mode": "per_connection", "model": MODEL, "policy_version": POLICY_VERSION, "key_configured": bool(read_key()),
         "key_file": str(key_path()), "counts": counts, "oldest_pending_at": oldest,
         "workers": [{"id": w.id, "status": w.status, "heartbeat_at": w.heartbeat_at} for w in workers],
-        "max_pending": MAX_PENDING, "performance": summary(db),
+        "max_pending": MAX_PENDING, "performance": summary(db), "debug": settings(db),
         "capacity": {"blocking_reserved": BLOCKING_RESERVE, "per_connection": MAX_BLOCKING_PER_CONNECTION,
                      "human_reserve_seconds": HUMAN_RESERVE, "attempt_seconds": 10}}

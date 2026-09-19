@@ -44,7 +44,7 @@ def assess(payload):
         writing = tool not in {"read", "read_file"}
         if any(path == p or path.is_relative_to(p) for p in credential_roots):
             findings.append({"id": "protected_credentials", "reason": "Direct file access to a protected credential directory.", "path": str(path)})
-        elif writing and (path in config_files or any(path.is_relative_to(ROOT / p) for p in ("backend", "scripts"))):
+        elif writing and (path in config_files or path.name in {"monitor.db", "monitor.db-wal", "monitor.db-shm"} and path.parent == ROOT / "data" or any(path.is_relative_to(ROOT / p) for p in ("backend", "scripts"))):
             findings.append({"id": "protected_monitor", "reason": "Direct file modification of Relay code or provider hook settings.", "path": str(path)})
         if findings:
             return {"decision": "deny", "findings": findings}
