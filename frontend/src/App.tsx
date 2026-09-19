@@ -16,7 +16,8 @@ import {
   X,
 } from "lucide-react";
 import { api, type Connection, type Metrics, type Session } from "./api";
-import { ConnectionDialog, Connections, Empty, Modal, Provider } from "./ui";
+import { ConnectionDialog, Connections, Empty, Provider } from "./ui";
+import { useSafetyNotifications } from "./useSafetyNotifications";
 import { SafetyWorkspace } from "./SafetyView";
 import { Timeline } from "./Timeline";
 import { FIT, TimeRange, type Range } from "./TimeRange";
@@ -26,7 +27,12 @@ type Page = "Overview" | "Safety" | "Explorer" | "Connections";
 const number = (n = 0) => Intl.NumberFormat().format(n);
 
 export default function App() {
-  const [page, setPage] = useState<Page>("Overview"),
+  const notifications = useSafetyNotifications();
+  const [chartReset, setChartReset] = useState(0);
+  const [chartRange, setChartRange] = useState<Metrics["viewport"] | null>(null);
+  const [sessionColorBy, setSessionColorBy] = useState("activity");
+  const [chartKind, setChartKind] = useState<"sessions" | "messages" | "actions">("actions");
+  const [page, setPage] = useState<Page>(location.hash.startsWith("#safety") ? "Safety" : "Overview"),
     [chartColorBy, setChartColorBy] = useState("activity"),
     [sessionType, setSessionType] = useState(""),
     [connection, setConnection] = useState(""),
@@ -40,11 +46,38 @@ export default function App() {
     [internal, setInternal] = useState(false),
     [sort, setSort] = useState("recent"),
     [offset, setOffset] = useState(0),
-    [selected, setSelected] = useState<string[]>([]),
     [opened, setOpened] = useState<Session | null>(null),
     [detailKind, setDetailKind] = useState(""),
     [adding, setAdding] = useState(false),
     [notice, setNotice] = useState("");
+  useEffect(() => {
+    const close = (event: Event) => {
+      const target = event.target as HTMLElement;
+      document.querySelectorAll<HTMLDetailsElement>(".range-picker[open], .advanced-filters[open]").forEach(el => {
+        if (event.type === "keydown" ? (event as KeyboardEvent).key === "Escape" : !el.contains(target)) el.open = false;
+      });
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("focusin", close);
+    document.addEventListener("keydown", close);
+    return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("focusin", close); document.removeEventListener("keydown", close); };
+  }, []);
+  useEffect(() => {
+    const navigate = () => {
+      if (location.hash.startsWith("#safety")) {
+        setPage("Safety");
+        const args = new URLSearchParams(location.hash.split("?")[1]);
+        if (args.get("message")) setNotice(args.get("message")!);
+      }
+    };
+    const message = (event: MessageEvent) => {
+      if (event.data?.type === "open-review") { location.hash = event.data.hash; navigate(); }
+    };
+    navigate();
+    window.addEventListener("hashchange", navigate);
+    navigator.serviceWorker?.addEventListener("message", message);
+    return () => { window.removeEventListener("hashchange", navigate); navigator.serviceWorker?.removeEventListener("message", message); };
+  }, []);
   const client = useQueryClient();
   const connections = useQuery({
     queryKey: ["connections"],
@@ -59,8 +92,8 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [search]);
   useEffect(() => {
+    setChartRange(null);
     setOffset(0);
-    setSelected([]);
     setOpened(null);
   }, [
     connection,
@@ -85,35 +118,38 @@ export default function App() {
     include_internal: String(internal),
     session_type: sessionType,
   });
-  const filterKey = params.toString();
+  const visibleParams = new URLSearchParams(params);
+  if (chartRange) { visibleParams.set("start", chartRange.start); visibleParams.set("end", chartRange.end); }
+  const filterKey = visibleParams.toString();
+  useEffect(() => setOffset(0), [filterKey]);
   const list = useQuery({
     queryKey: ["sessions", filterKey, sort, offset],
     queryFn: () =>
       api<{ total: number; items: Session[] }>(
-        `/sessions?${params}&sort=${sort}&offset=${offset}`,
+        `/sessions?${visibleParams}&sort=${sort}&offset=${offset}`,
       ),
   });
   const metricParams = new URLSearchParams(params);
-  if (selected.length) metricParams.set("session_ids", selected.join(","));
   const metricKey = metricParams.toString();
+  const totalParams = new URLSearchParams(visibleParams);
   const metrics = useQuery({
-    queryKey: ["metrics", metricKey],
-    queryFn: () => api<Metrics>(`/metrics?${metricParams}`),
+    queryKey: ["metrics", totalParams.toString()],
+    queryFn: () => api<Metrics>(`/metrics?${totalParams}`),
   });
   const sessions = list.data?.items ?? [],
     totals = metrics.data;
-  const selectedVisible =
-    sessions.length > 0 && sessions.every((s) => selected.includes(s.id));
   const refresh = () => {
     void client.invalidateQueries();
   };
   function clearFilters() {
+    setChartReset(n => n + 1);
     setConnection("");
     setSessionType("");
     setSort("recent");
     setOffset(0);
     setOpened(null);
     setRange(FIT);
+    setChartRange(null);
     setSearch("");
     setQuery("");
     setAction("");
@@ -121,19 +157,19 @@ export default function App() {
     setInternal(false);
     setMode("words");
     setScope("messages");
-    setSelected([]);
   }
   function changePage(next: Page) {
     setPage(next);
-    setOpened(null);
+    history.replaceState(null, "", next === "Safety" ? "#safety" : location.pathname);
   }
   function openSession(session: Session, kind = "") {
+    setPage("Explorer");
     setOpened(session);
     setDetailKind(kind);
   }
   const hasFilters = Boolean(
     connection ||
-    range.start ||
+    range.start || chartRange ||
     search ||
     action ||
     tool ||
@@ -182,6 +218,7 @@ export default function App() {
             >
               <Icon size={18} />
               {name}
+              {name === "Safety" && notifications.count > 0 && <span className="nav-count review-count" aria-label={`${notifications.count} pending reviews`}>{notifications.count}</span>}
               {name === "Connections" && (
                 <span className="nav-count">
                   {connections.data?.length ?? 0}
@@ -223,7 +260,7 @@ export default function App() {
             <span className="top-avatar">M</span>
           </div>
         </header>
-        <main>
+        <main className={page === "Overview" ? "overview-page" : ""}>
           <div className="page-heading">
             <div>
               <h1>
@@ -262,8 +299,7 @@ export default function App() {
               add={() => setAdding(true)}
               removed={(id) => {
                 if (connection === id) setConnection("");
-                setSelected([]);
-                setOpened(null);
+                            setOpened(null);
                 setOffset(0);
                 client.removeQueries({ queryKey: ["events"] });
               }}
@@ -306,6 +342,22 @@ export default function App() {
                         </option>
                       ))}
                     </select>
+                    <TimeRange value={chartRange ? { ...chartRange, label: "Custom range" } : range} onChange={r => { setChartReset(n => n + 1); setChartRange(null); setRange(r); }} />
+                    <details className="advanced-filters">
+                      <summary>
+                        More filters
+                        {[
+                          Boolean(tool),
+                          Boolean(action),
+                          Boolean(sessionType),
+                          internal,
+                          mode !== "words",
+                          scope !== "messages",
+                        ].filter(Boolean).length
+                          ? ` (${[Boolean(tool), Boolean(action), Boolean(sessionType), internal, mode !== "words", scope !== "messages"].filter(Boolean).length})`
+                          : ""}
+                      </summary>
+                      <div className="advanced-popover">
                     <select
                       aria-label="Session type"
                       value={sessionType}
@@ -326,20 +378,7 @@ export default function App() {
                         </option>
                       ))}
                     </select>
-                    <TimeRange value={range} onChange={setRange} />
-                    <details className="advanced-filters">
-                      <summary>
-                        More filters
-                        {[
-                          Boolean(tool),
-                          internal,
-                          mode !== "words",
-                          scope !== "messages",
-                        ].filter(Boolean).length
-                          ? ` (${[Boolean(tool), internal, mode !== "words", scope !== "messages"].filter(Boolean).length})`
-                          : ""}
-                      </summary>
-                      <div className="advanced-popover">
+
                         {" "}
                         <label className="advanced-field">
                           <span>Search in</span>
@@ -391,7 +430,7 @@ export default function App() {
                     <button
                       className="clear-all"
                       disabled={
-                        !hasFilters && !selected.length && sort === "recent"
+                        !hasFilters && sort === "recent"
                       }
                       onClick={clearFilters}
                     >
@@ -399,23 +438,9 @@ export default function App() {
                     </button>
                   </div>
                 </section>
+              </div>}
                 {page === "Overview" && (
                   <>
-                    <div className="selection-summary">
-                      <span>
-                        {selected.length
-                          ? `${selected.length} session${selected.length === 1 ? "" : "s"} selected`
-                          : `${list.data?.total ?? 0} matching sessions`}{" "}
-                      </span>
-                      {selected.length > 0 && (
-                        <button
-                          className="text-button"
-                          onClick={() => setSelected([])}
-                        >
-                          Clear selection
-                        </button>
-                      )}
-                    </div>
                     <div className="stats">
                       {[
                         {
@@ -437,7 +462,11 @@ export default function App() {
                               : "Tool-call records, not proven outcomes",
                         },
                       ].map(({ label, value, note }) => (
-                        <section
+                        <button
+                          type="button"
+                          aria-pressed={chartKind === label.toLowerCase()}
+                          aria-label={`Show ${label.toLowerCase()} chart`}
+                          onClick={() => setChartKind(label.toLowerCase() as typeof chartKind)}
                           className="stat"
                           key={label}
                           title={
@@ -454,22 +483,23 @@ export default function App() {
                                 ? number(value)
                                 : value}
                           </div>
-                        </section>
+                        </button>
                       ))}
                     </div>
                   </>
                 )}
-              </div>
-              }
-              {page === "Overview" && (
+              {page !== "Safety" && <div hidden={page !== "Overview"}>
                 <Timeline
-                  key={metricKey}
+                  key={`${metricKey}:${chartReset}`}
                   params={metricKey}
-                  colorBy={chartColorBy}
-                  setColorBy={setChartColorBy}
+                  chartKind={chartKind}
+                  onViewportChange={setChartRange}
+                  onOpenSession={openSession}
+                  colorBy={chartKind === "sessions" ? sessionColorBy : chartKind === "messages" && chartColorBy === "safety" ? "activity" : chartColorBy}
+                  setColorBy={chartKind === "sessions" ? setSessionColorBy : setChartColorBy}
                 />
-              )}
-              {page === "Safety" && <SafetyWorkspace connections={connections.data ?? []} refresh={refresh} notify={setNotice} />}
+              </div>}
+              {page === "Safety" && <SafetyWorkspace notifications={notifications} connections={connections.data ?? []} refresh={refresh} notify={setNotice} />}
               {page !== "Safety" && <div className={page === "Explorer" ? "explorer-layout" : ""}>
                 <section className="panel session-panel">
                   <div className="panel-heading">
@@ -497,38 +527,14 @@ export default function App() {
                     <table>
                       <thead>
                         <tr>
-                          {page === "Overview" && (
-                            <th className="check-cell">
-                              <input
-                                type="checkbox"
-                                aria-label="Select visible sessions"
-                                checked={selectedVisible}
-                                onChange={() =>
-                                  setSelected((s) =>
-                                    selectedVisible
-                                      ? s.filter(
-                                          (id) =>
-                                            !sessions.some(
-                                              (row) => row.id === id,
-                                            ),
-                                        )
-                                      : [
-                                          ...new Set([
-                                            ...s,
-                                            ...sessions.map((row) => row.id),
-                                          ]),
-                                        ],
-                                  )
-                                }
-                              />
-                            </th>
-                          )}
                           <th>SESSION</th>
                           {page === "Overview" && (
                             <th className="mobile-secondary">CONNECTION</th>
                           )}
                           <th className="number mobile-secondary">MESSAGES</th>
                           <th className="number">ACTIONS</th>
+                          <th className="number">INPUT TOKENS</th>
+                          <th className="number">OUTPUT TOKENS</th>
                           {page === "Overview" && (
                             <th className="mobile-secondary">LAST ACTIVITY</th>
                           )}
@@ -538,32 +544,8 @@ export default function App() {
                         {sessions.map((session) => (
                           <tr
                             key={session.id}
-                            className={
-                              (
-                                page === "Overview"
-                                  ? selected.includes(session.id)
-                                  : opened?.id === session.id
-                              )
-                                ? "selected"
-                                : ""
-                            }
+                            className={opened?.id === session.id ? "selected" : ""}
                           >
-                            {page === "Overview" && (
-                              <td className="check-cell">
-                                <input
-                                  type="checkbox"
-                                  aria-label={`Select ${session.title}`}
-                                  checked={selected.includes(session.id)}
-                                  onChange={() =>
-                                    setSelected((s) =>
-                                      s.includes(session.id)
-                                        ? s.filter((id) => id !== session.id)
-                                        : [...s, session.id],
-                                    )
-                                  }
-                                />
-                              </td>
-                            )}
                             <td>
                               <button
                                 className="session-link"
@@ -638,6 +620,8 @@ export default function App() {
                                 {number(session.actions)}
                               </button>
                             </td>
+                            <td className="number" title="Reported input tokens, including cached input, in the selected time range">{session.input_tokens == null ? "—" : `${session.tokens_partial ? "≥" : ""}${number(session.input_tokens)}`}</td>
+                            <td className="number" title="Reported output tokens in the selected time range">{session.output_tokens == null ? "—" : `${session.tokens_partial ? "≥" : ""}${number(session.output_tokens)}`}</td>
                             {page === "Overview" && (
                               <td className="time-cell mobile-secondary">
                                 {new Date(session.updated_at).toLocaleString(
@@ -761,23 +745,7 @@ export default function App() {
           }}
         />
       )}
-      {opened && page === "Overview" && (
-        <Modal wide close={() => setOpened(null)}>
-          <button
-            className="close-conversation icon-button"
-            aria-label="Close conversation"
-            onClick={() => setOpened(null)}
-          >
-            <X size={20} />
-          </button>
-          <Conversation
-            key={opened.id + filterKey + detailKind}
-            session={opened}
-            params={filterKey}
-            initialKind={detailKind}
-          />
-        </Modal>
-      )}
+
     </div>
   );
 }

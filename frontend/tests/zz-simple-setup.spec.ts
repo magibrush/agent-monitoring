@@ -65,25 +65,14 @@ test("simple setup, archives, and conversation-colored bars", async ({
   await page.getByLabel("Color bars by").selectOption("conversation");
   await expect(page.getByLabel("Vertical scale")).toHaveValue("linear");
   await expect(page.getByLabel("Vertical scale")).toBeDisabled();
-  await expect(page.getByLabel("Conversation colors")).toContainText(
-    "Mixed source cli conversation",
-  );
-  await page.getByRole("button", { name: "Inspect activity" }).click();
-  const value = await page
-    .getByLabel("Inspect time bucket")
-    .locator("option")
-    .nth(1)
-    .getAttribute("value");
-  await page.getByLabel("Inspect time bucket").selectOption(value!);
-  await expect(page.locator(".contribution-panel")).toContainText(
-    "100.0% of bar",
-  );
+  await expect(page.getByLabel("Conversation colors")).toHaveCount(0);
+  await page.getByTestId("actions-chart").focus();
+  await page.keyboard.press("Home");
+  await expect(page.getByLabel("Bar inspection").locator("h3")).toHaveText("Actions");
   await page.getByLabel("Filter connection").selectOption("");
   await expect(page.getByLabel("Color bars by")).toHaveValue("conversation");
-  await page.getByRole("button", { name: "Inspect activity" }).click();
-  const allValue = await page.getByLabel("Inspect time bucket").locator("option").nth(1).getAttribute("value");
-  await page.getByLabel("Inspect time bucket").selectOption(allValue!);
-  await expect(page.locator(".contribution-panel")).toContainText("% of bar");
+  await page.getByTestId("actions-chart").focus();
+  await page.keyboard.press("Home");
   await page.screenshot({
     path: "../data/qa/conversation-bars.png",
     fullPage: true,

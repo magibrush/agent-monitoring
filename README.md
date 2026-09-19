@@ -7,8 +7,8 @@ A local agent monitoring app: React + TypeScript frontend, Python API, and SQLit
 - Dashboard with activity charts, prompt/answer counts, and recorded tool-call totals.
 - Multiple named connections and independently identified chat sessions.
 - Connection, precise time-range, message/tool search, and action-category filters; sorting and pagination.
-- Select sessions to aggregate their metrics; explore conversations and tool records in a separate split-view Explorer.
-- Aligned action/message charts, logarithmic or linear scale, drag-to-zoom, and exact manual bucket sizes.
+- Open any Overview session directly in the split-view Explorer; search, filters, and the chart window persist when switching between these views.
+- One Overview chart, selected through the Sessions, Messages, or Actions cards, with linear/logarithmic scale and shared time controls in Safety.
 - Codex Desktop, Codex CLI, and Claude Code local transcript watchers, with durable checkpoints, pause/resume, source checks, sync errors, and manual sync.
 - Local-only HTTP access, SQLite WAL, SQLAlchemy models, Alembic migrations, and tests.
 
@@ -89,14 +89,14 @@ Use **Connections → Delete** to remove a connection. The confirmation removes 
 
 - **Fit activity** uses the actual event timestamps of matching/selected sessions. Automatic buckets target roughly 100 points, from one minute through one year. Empty buckets show zero activity. Thirty-day and year buckets are fixed durations, not calendar month/year boundaries. Data is stored in UTC; dates and chart labels display in your browser timezone.
 - The **time-range picker** offers recent presets and precise custom start/end dates and times. The end is exclusive. A range filters sessions to those with activity in it, then limits their counts and conversation records. Presets capture a fixed window at the moment you select them.
-- **Overview checkboxes** immediately restrict the chart and totals. Changing global filters clears that selection. Drag-to-zoom and Earlier/Later change only the chart viewport. Explicit resolution is honored: ranges exceeding 600 buckets show a paged window at that resolution. The compact navigator always shows the full filtered timeline; drag its handles to resize or its middle to pan, with updates on release. Arrow keys move focused handles/windows. Manual intervals cap the selected width at 600 buckets. Full range · Auto restores the complete range and automatic buckets. Totals remain for the entire selection.
-- **Explorer** opens conversations alongside the session list; it has no aggregation checkboxes. Action counts open tool calls directly. The conversation viewer respects global time/action filters; “Show surrounding conversation” and “Full session time range” let you broaden the detail view.
+- **Overview time controls** work together. Dragging, zooming, panning, and navigator changes synchronize the date picker, totals, and session list with the chart window. Explicit resolution is honored: ranges exceeding 600 buckets show a paged window at that resolution. The compact navigator always shows the full filtered timeline; drag its handles to resize or its middle to pan, with updates on release. Arrow keys move focused handles/windows. Manual intervals cap the selected width at 600 buckets. Full range · Auto restores the complete range and automatic buckets. Reset restores the broader date filter; Clear all removes all filters.
+- **Explorer** opens conversations alongside the session list; it has no aggregation checkboxes. Action counts open tool calls directly. The conversation viewer keeps the selected time range and hides setup context. “Show surrounding conversation” broadens message/tool matching within that range.
 
 ### Investigating activity
 
 Actions and conversation volume use aligned time axes with independent vertical axes. The default logarithmic view uses `log10(1 + count)` to retain zeros; tick labels and tooltips always show raw counts. Linear scale is available for absolute comparisons. Large volume is not a security verdict.
 
-Hover an action bar for its tool breakdown. Message bars stack user (blue) and assistant (teal) counts, with raw counts on hover. Logarithmic stacks use cumulative boundaries so totals remain correct; segment heights on this scale are not proportional shares. Click a bucket, or choose one in **Inspect**, to reveal contributing sessions. Rank by actions or messages and page through all contributors. Action ranking excludes zero-action sessions. Opening a contributor shows its records within the inspected range; surrounding context and full-session controls remain available.
+Hover an action bar for its tool breakdown. Message bars stack user (blue) and assistant (teal) counts, with raw counts on hover. Logarithmic stacks use cumulative boundaries so totals remain correct; segment heights on this scale are not proportional shares. Click a bar to populate the permanent inspector beside the chart, or focus the chart and use arrow keys. Actions shows action counts, Sessions lists sessions, and Messages shows user/assistant counts and conversations. Dragging updates the inspector to the selected window. Opening a contributor shows its records within the inspected range; surrounding context and full-session controls remain available.
 
 Historical transcripts can contain many records with nearly identical recorded timestamps. These charts reflect source timestamps; they do not reconstruct original wall-clock timing or infer that clustered records represent live activity.
 
@@ -170,6 +170,8 @@ Claude Desktop export importing has been removed. Any previously imported record
 
 ### Shared chart styling
 
+Click an Overview metric card to switch the single chart while retaining its time window and interval. Session bars count distinct sessions with activity in each bucket; the same session can appear in several buckets. Overview and Safety share drag-to-zoom, a full-range navigator, exact intervals, pan, and reset. Safety history follows the visible window or selected bar; live approval requests remain visible across all connections. Tooltips use colored keys with neutral text in both views.
+
 Action charts rank tools independently inside each time bar. Ten predefined colors mean ranks 1 through 10, with gray combining additional actions in that bar. Ties use action name. There is no global action legend because a color can represent different tools in different bars. Linear scale is the default; logarithmic mode warns that segment heights are not proportional shares. Hover or select a bar for its action names, ranks, exact counts and percentages. Window inspection shows neutral aggregate totals; select a bar for matching rank colors. Message roles retain fixed blue/teal colors.
 
 The sticky scope header includes session-type filtering (all, conversations, or subagents), totals, and an always-present Clear all button. Clear all resets scope filters, selection, and session sorting. Custom date ranges show their dates; full timestamps are available on hover.
@@ -186,9 +188,9 @@ Codex CLI 0.154.0 on this machine uses `originator: "codex-tui"`, `source: "cli"
 
 ### Conversation composition in charts
 
-Choose **Color by → Conversation** to see which conversations make up each action/message bar. This mode uses a linear scale so colored segments represent true counts and shares. The eight most active conversations in the full selected scope receive separate colors; remaining activity is combined as **Other conversations**. Zooming keeps that set fixed. The legend shows active colors and full titles on hover.
+Choose **Color by → Conversation** to see which conversations make up each action/message bar. This mode uses a linear scale so colored segments represent true counts and shares. Each bar ranks its ten most active conversations independently, combining the remainder as **Other conversations**. Colors represent ranks, with names and counts shown when hovering or inspecting that bar. Safety outcome coloring follows the same per-bar ranking; neither mode has a full-range color legend.
 
-Click a bar (or use Inspect's time selector) to see contributing conversations, exact counts, and share tracks. Shares use the entire bar or window as denominator, including conversations on other pages. Each entry opens that conversation in the selected time range. Switching back to **Activity type** restores tool/role breakdown and the previous scale. Conversation colors remain selected when filters change.
+Click a bar to populate the inspector for the active chart. Session and message entries open the conversation; action entries show counts. Each entry opens that conversation in the selected time range. Switching back to **Activity type** restores tool/role breakdown and the previous scale. Conversation colors remain selected when filters change.
 
 
 ### Add Claude Code
@@ -200,3 +202,15 @@ The separate `claude_code` integration reads user text, assistant text, tool req
 Claude Code uses an amber **Claude Code** badge. Search, action filters, charts and Explorer share the same event model as Codex. Read/Glob/Grep map to reads; Write/Edit/MultiEdit/NotebookEdit to file writes; Bash/PowerShell to shell; WebFetch/WebSearch to network. Existing deletion heuristics still apply to shell commands. Recorded requests do not imply successful execution. Retired `claude` Desktop imports remain hidden and cannot be enabled through this adapter.
 
 Transcript layout references: [Claude Code hooks](https://code.claude.com/docs/en/hooks), [SDK sessions](https://code.claude.com/docs/en/agent-sdk/sessions). This is polling-based observation; no hooks need installing.
+
+### Token usage
+
+Session lists show provider-reported input and output tokens within the selected time range. Input includes cached tokens; Codex cached input is already included in its input total, while Claude cache reads and writes are added to its uncached input. Output includes reported reasoning usage where the provider includes it. Counts are usage across requests, not unique words or the current context size. Missing breakdowns show —; ≥ marks a partial reported total. Usage records do not add messages or actions.
+
+In Sessions, choose **Color by → Tokens · input / output** to plot input and output tokens over time. The axis measures tokens in this mode. Codex cumulative counters are converted into increments, and repeated Claude message IDs are counted once. Existing transcripts are reread once on upgrade to backfill usage. No API calls or token estimates are needed.
+
+### Safety notifications and review
+
+In **Safety**, choose **Enable notifications** and allow the browser permission. Keep a Relay tab open to receive new alerts; browser suspension or operating-system notification settings can delay them. Alerts contain the tool, session, reason and expiry time. Supported browsers show **Approve** and **Deny** actions, using the same deadline and assessed-input checks as the app. Clicking the notification focuses an existing Relay tab at the review, or opens Relay at its current origin if no tab remains. Notification appearance and action support depend on the browser and OS. Safety settings let you turn alerts off.
+
+The live queue covers all connections, independently of history filters. Outcome cards filter the timeline and action list; click an action for its command, judge recommendation, human decision and execution status in the adjacent inspector. Technical details remain available within that inspector. A pending-review badge is visible while using other workspace views.

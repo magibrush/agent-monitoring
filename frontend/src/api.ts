@@ -30,6 +30,9 @@ export interface Session {
   provider: string;
   messages: number;
   actions: number;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  tokens_partial?: boolean;
   updated_at: string;
   source: string;
   session_type: string;
@@ -82,6 +85,10 @@ export interface Metrics {
   answers: number;
   actions: number;
   series: {
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+    tokens_partial?: boolean;
+    sessions: number;
     safety?: Record<string, number>;
     time: number;
     user: number;

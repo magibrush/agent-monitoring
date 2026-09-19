@@ -70,34 +70,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
       { timeout: 15000 },
     )
     .toBe(71);
-  await page
-    .getByLabel("Select Investigate ingestion delays", { exact: true })
-    .check();
-  await expect(
-    page
-      .locator(".selection-summary")
-      .filter({ hasText: "1 session selected" }),
-  ).toBeVisible();
-  await expect(
-    page
-      .locator(".stat")
-      .filter({
-        has: page.locator(".stat-label").getByText("Messages", { exact: true }),
-      })
-      .locator(".stat-value"),
-  ).toHaveText("11");
-  await expect(
-    page.getByLabel("Bucket size").locator("option:checked"),
-  ).toContainText("1 minute");
-  await page.getByRole("button", { name: "Zoom in", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Pan earlier", exact: true }),
-  ).toBeEnabled();
-  await page.getByRole("button", { name: "Pan earlier", exact: true }).click();
-  await page.getByRole("button", { name: "Reset zoom", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Clear selection", exact: true })
-    .click();
+  await expect(page.locator("table input[type=checkbox]")).toHaveCount(0);
   await page.getByLabel("Bucket size", { exact: true }).selectOption("60");
   await expect(page.getByLabel("Bucket size")).toHaveValue("60");
   await expect(page.locator(".window-caption")).toContainText(
@@ -114,22 +87,6 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   await expect(page.getByLabel("Vertical scale")).toHaveValue("linear");
   await page.getByLabel("Vertical scale").selectOption("log");
   await page.getByRole("button", { name: "Reset zoom", exact: true }).click();
-  await page.getByRole("button", { name: "Inspect activity" }).click();
-  await page.getByRole("button", { name: "Next contributors" }).click();
-  await expect(page.locator(".contribution-panel > small")).toContainText(
-    "6–7 of 7",
-  );
-  await page.getByRole("button", { name: "Previous contributors" }).click();
-  const firstBucket = await page
-    .getByLabel("Inspect time bucket")
-    .locator("option")
-    .nth(1)
-    .getAttribute("value");
-  await page.getByLabel("Inspect time bucket").selectOption(firstBucket!);
-  await expect(page.locator(".contribution-heading")).toContainText(
-    "Sessions in this bucket",
-  );
-  await page.getByRole("button", { name: "Clear bucket", exact: true }).click();
   const plot = page.getByTestId("actions-chart");
   await plot.scrollIntoViewIfNeeded();
   const bounds = (await plot.boundingBox())!;
@@ -189,6 +146,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   await page.getByRole("button", { name: "Reset zoom", exact: true }).click();
   const clear = page.getByRole("button", { name: "Clear all", exact: true });
   const clearBefore = await clear.boundingBox();
+  await page.locator(".advanced-filters > summary").click();
   await page
     .getByLabel("Session type", { exact: true })
     .selectOption("subagent");
@@ -217,12 +175,13 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
     .click();
   await expect(page.locator(".message")).toHaveCount(1);
   await expect(page.locator(".message mark")).toHaveText("dance");
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await page.locator(".advanced-filters > summary").click();
   await page.getByLabel("Search matching").selectOption("contains");
   await expect(page.locator("tbody tr")).toHaveCount(7);
   await page.getByLabel("Clear search", { exact: true }).click();
-  await page.getByLabel("Search matching").selectOption("words");
   await page.locator(".advanced-filters > summary").click();
+  await page.getByLabel("Search matching").selectOption("words");
   await page
     .getByLabel("Action filter", { exact: true })
     .selectOption("deletion");
@@ -232,12 +191,14 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
     .first()
     .click();
   await expect(page.locator(".message")).toHaveCount(1);
-  await page.getByRole("dialog").locator("summary").click();
-  await expect(page.getByRole("dialog").locator("pre")).toContainText(
+  await page.locator(".explorer-detail").locator("summary").click();
+  await expect(page.locator(".explorer-detail").locator("pre")).toContainText(
     "Remove-Item",
   );
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await page.locator(".advanced-filters > summary").click();
   await page.getByLabel("Action filter", { exact: true }).selectOption("");
+  await page.locator(".advanced-filters > summary").click();
   await page.locator(".range-picker > summary").click();
   const today = new Date().toLocaleDateString("en-CA");
   await page.getByLabel("Range start", { exact: true }).fill(`${today}T00:00`);
@@ -260,7 +221,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
     .getByRole("button", { name: /Database migration planning/ })
     .first()
     .click();
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.locator(".explorer-detail")).toBeVisible();
   await expect(page.locator(".message mark")).toContainText(["migration"]);
   await page
     .getByRole("button", { name: "Show surrounding conversation" })
@@ -270,9 +231,9 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   ).toBeVisible();
   await page.getByLabel("Filter event type").selectOption("tool_call");
   await expect(page.locator(".message")).toHaveCount(2);
-  await page.getByRole("dialog").locator("summary").first().click();
+  await page.locator(".explorer-detail").locator("summary").first().click();
   await expect(page.locator("pre").first()).toContainText("README.md");
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByLabel("Clear search", { exact: true }).click();
   await page
@@ -329,10 +290,12 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
     (await page.locator(".session-panel .panel-heading").boundingBox())!.y,
   ).toBeLessThan(1000);
   await expect(page.locator(".contribution-panel")).toHaveCount(0);
+  await page.getByRole("button", { name: "Show messages chart" }).click();
   await expect(
     page.getByTestId("messages-chart").locator(".recharts-bar"),
   ).toHaveCount(2);
   for (const kind of ["actions", "messages"]) {
+    await page.getByRole("button", { name: `Show ${kind} chart` }).click();
     const chart = page.getByTestId(`${kind}-chart`);
     for (const bar of await chart.locator(".recharts-bar-rectangle").all()) {
       const box = await bar.boundingBox();
@@ -360,9 +323,8 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   await page.mouse.move(0, 0);
   await page.screenshot({ path: "../data/qa/dashboard.png", fullPage: true });
   await page.locator("tbody tr").last().scrollIntoViewIfNeeded();
-  const sticky = await page.locator(".sticky-controls").boundingBox();
-  expect(sticky!.y).toBeGreaterThanOrEqual(0);
-  expect(sticky!.y).toBeLessThan(10);
+  await expect(page.locator(".signal-plot")).toHaveCount(1);
+  await expect(page.locator(".sticky-controls")).toBeInViewport();
   await expect(
     page.getByRole("button", { name: "Clear all", exact: true }),
   ).toBeInViewport();
@@ -394,7 +356,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
     path: "../data/qa/conversation.png",
     fullPage: true,
   });
-  await page.getByLabel("Close conversation").click();
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
   await expect

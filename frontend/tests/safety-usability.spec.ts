@@ -33,9 +33,15 @@ test("realistic safety layout, history scope, and flat action detail", async ({ 
   await expect(page.getByLabel("Safety actions").getByRole("button")).toHaveCount(1);
   await expect(queue.getByRole("button", { name: "Approve", exact: true })).toHaveCount(2);
   await page.getByLabel("Safety actions").getByRole("button").click();
-  await expect(page.getByRole("dialog")).toContainText("Attempts to remove files");
-  await expect(page.getByRole("dialog").locator("details")).toHaveCount(1);
+  await expect(page.getByLabel("Action details", { exact: true })).toContainText("Attempts to remove files");
+  await expect(page.getByLabel("Action inspector", { exact: true })).toBeFocused();
+  await expect.poll(async () => (await page.getByLabel("Action inspector", { exact: true }).boundingBox())!.y).toBeLessThan(200);
+  await expect(page.getByLabel("Action details", { exact: true }).locator("details")).toHaveCount(1);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: "../data/qa/safety-detail-simple.png" });
   await page.getByRole("button", { name: "Close action details" }).click();
+  await expect(page.getByLabel("Safety actions").getByRole("button")).toBeFocused();
+  await page.getByLabel("Safety actions").getByRole("button").click();
+  await page.getByRole("button", { name: "Released 1", exact: true }).click();
+  await expect(page.getByLabel("Action details", { exact: true })).toHaveCount(0);
 });

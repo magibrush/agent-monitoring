@@ -115,22 +115,37 @@ def excerpt(text, f):
     return ("…" if a else "") + text[a:b] + ("…" if b < len(text) else "")
 
 
+def usage_conditions(f):
+    from backend.db import TokenUsage
+    start, end = bounds(f)
+    return ([TokenUsage.occurred_at >= start.isoformat()] if start else []) + ([TokenUsage.occurred_at < end.isoformat()] if end else [])
+
+
+def usage_totals(db, ids, f):
+    from backend.db import TokenUsage as U
+    rows = db.execute(select(U.session_id, func.sum(U.input_tokens), func.sum(U.output_tokens), func.count(), func.count(U.input_tokens), func.count(U.output_tokens)).where(U.session_id.in_(ids), *usage_conditions(f)).group_by(U.session_id)).all()
+    return {sid: {"input_tokens": inp, "output_tokens": out, "tokens_partial": ni < total or no < total} for sid, inp, out, total, ni, no in rows}
+
+
 @router.get("/sessions")
-def sessions(f: Filters = Depends(), sort: Literal["recent", "messages", "actions", "title"] = "recent", offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
+def sessions(f: Filters = Depends(), messages_only: bool = False, sort: Literal["recent", "messages", "actions", "title"] = "recent", offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
     action_count = and_(*action_filters(f))
     counts = select(Event.session_id, func.sum(case((Event.kind == "message", 1), else_=0)).label("messages"), func.sum(case((action_count, 1), else_=0)).label("actions")).where(*time_filters(f)).group_by(Event.session_id).subquery()
     query = select(ChatSession, Connection.name, Connection.provider, func.coalesce(counts.c.messages, 0), func.coalesce(counts.c.actions, 0)).join(Connection).outerjoin(counts, counts.c.session_id == ChatSession.id).where(ChatSession.id.in_(selected_sessions(f)))
+    if messages_only:
+        query = query.where(counts.c.messages > 0)
     ordering = {"recent": ChatSession.updated_at.desc(), "messages": func.coalesce(counts.c.messages, 0).desc(), "actions": func.coalesce(counts.c.actions, 0).desc(), "title": ChatSession.title.asc()}[sort]
     with store() as db:
         total = db.scalar(select(func.count()).select_from(query.subquery()))
         rows = db.execute(query.order_by(ordering, ChatSession.id).offset(offset).limit(limit)).all()
         items = []
+        usage = usage_totals(db, [r[0].id for r in rows], f)
         for session, name, provider, messages, actions in rows:
             match = None
             if f.q:
                 event = db.scalar(select(Event).where(Event.session_id == session.id, search_events(f), *time_filters(f)).order_by(Event.occurred_at).limit(1))
                 match = {"kind": event.kind if event else "title", "text": excerpt(event.text if event else session.title, f), "event_id": event.id if event else None}
-            items.append({**dump(session), "connection_name": name, "provider": provider, "messages": messages, "actions": actions, "match": match})
+            items.append({**dump(session), **usage.get(session.id, {"input_tokens": None, "output_tokens": None, "tokens_partial": False}), "connection_name": name, "provider": provider, "messages": messages, "actions": actions, "match": match})
         return {"total": total, "items": items}
 
 
@@ -179,11 +194,17 @@ def metrics(f: Filters = Depends(), interval: int = Query(0, ge=0), view_start: 
             high = low + seconds
         left = math.floor(low / seconds) * seconds
         right = math.floor(high / seconds) * seconds
-        rows = [{"time": int(t * 1000), "user": 0, "assistant": 0, "actions": 0} for t in range(int(left), int(right) + 1, seconds)]
+        rows = [{"time": int(t * 1000), "user": 0, "assistant": 0, "actions": 0, "sessions": 0} for t in range(int(left), int(right) + 1, seconds)]
         slots = {row["time"]: row for row in rows}
         # Aggregate in SQL; at most 3 * number-of-buckets rows cross into Python.
         epoch = func.unixepoch(Event.occurred_at)
         bucket = epoch - ((epoch % seconds + seconds) % seconds)
+        session_rows = db.execute(select(bucket, func.count(func.distinct(Event.session_id))).where(
+            *conditions, Event.occurred_at >= datetime.fromtimestamp(low, timezone.utc).isoformat(),
+            Event.occurred_at < datetime.fromtimestamp(high, timezone.utc).isoformat()).group_by(bucket)).all()
+        for stamp, amount in session_rows:
+            if stamp * 1000 in slots:
+                slots[stamp * 1000]["sessions"] = amount
         grouped = db.execute(select(bucket, Event.role, Event.kind, func.count()).where(*conditions, Event.kind.in_(["message", "tool_call"]), Event.occurred_at >= datetime.fromtimestamp(low, timezone.utc).isoformat(), Event.occurred_at < datetime.fromtimestamp(high, timezone.utc).isoformat()).group_by(bucket, Event.role, Event.kind)).all()
         for stamp, role, kind, count in grouped:
             row = slots.get(stamp * 1000)
@@ -197,6 +218,13 @@ def metrics(f: Filters = Depends(), interval: int = Query(0, ge=0), view_start: 
                 slots[stamp * 1000]["tools"].append({"name": name or "Unknown tool", "count": amount})
         for row in rows:
             row["tools"].sort(key=lambda item: (-item["count"], item["name"]))
+        from backend.db import TokenUsage as U
+        token_bucket = func.unixepoch(U.occurred_at) - ((func.unixepoch(U.occurred_at) % seconds + seconds) % seconds)
+        for row in rows:
+            row.update(input_tokens=None, output_tokens=None, tokens_partial=False)
+        for stamp, inp, out, total, ni, no in db.execute(select(token_bucket, func.sum(U.input_tokens), func.sum(U.output_tokens), func.count(), func.count(U.input_tokens), func.count(U.output_tokens)).where(U.session_id.in_(selected), *usage_conditions(f), U.occurred_at >= datetime.fromtimestamp(low, timezone.utc).isoformat(), U.occurred_at < datetime.fromtimestamp(high, timezone.utc).isoformat()).group_by(token_bucket)):
+            if stamp * 1000 in slots:
+                slots[stamp * 1000].update(input_tokens=inp, output_tokens=out, tokens_partial=ni < total or no < total)
         from backend.safety_analytics import aggregate
         safety_summary, safety_slots = aggregate(db, conditions, bucket,
             datetime.fromtimestamp(low, timezone.utc).isoformat(), datetime.fromtimestamp(high, timezone.utc).isoformat())
@@ -205,21 +233,20 @@ def metrics(f: Filters = Depends(), interval: int = Query(0, ge=0), view_start: 
         tools = db.execute(select(base.c.tool_name, func.count()).where(base.c.kind == "tool_call").group_by(base.c.tool_name).order_by(func.count().desc()).limit(8)).all()
         conversation_info = []
         if conversations:
-            # Fixed across the full selected scope, not re-ranked on zoom.
-            top = list(db.scalars(select(base.c.session_id).where(base.c.kind.in_(["message", "tool_call"])).group_by(base.c.session_id).order_by(func.count().desc(), base.c.session_id).limit(8)))
-            if top:
-                for session, connection in db.execute(select(ChatSession, Connection).join(Connection).where(ChatSession.id.in_(top)).order_by(ChatSession.id)):
-                    conversation_info.append({"id": session.id, "title": session.title, "provider": connection.provider, "connection_name": connection.name})
-            conversation_info.append({"id": "other", "title": "Other conversations", "provider": "", "connection_name": ""})
-            identity = case((Event.session_id.in_(top), Event.session_id), else_="other")
+            # Retain each bucket's identities so each chart can rank its own top ten.
+            identity = Event.session_id
             composition = db.execute(select(bucket, identity, Event.kind, func.count()).where(*conditions, Event.kind.in_(["message", "tool_call"]), Event.occurred_at >= datetime.fromtimestamp(low, timezone.utc).isoformat(), Event.occurred_at < datetime.fromtimestamp(high, timezone.utc).isoformat()).group_by(bucket, identity, Event.kind)).all()
             by_slot = {}
             for stamp, identity_, kind, amount in composition:
                 key = (stamp * 1000, identity_)
                 item = by_slot.setdefault(key, {"id": identity_, "actions": 0, "messages": 0})
                 item["actions" if kind == "tool_call" else "messages"] += amount
+            ids = {item["id"] for item in by_slot.values()}
+            if ids:
+                for session, connection in db.execute(select(ChatSession, Connection).join(Connection).where(ChatSession.id.in_(ids)).order_by(ChatSession.id)):
+                    conversation_info.append({"id": session.id, "title": session.title, "provider": connection.provider, "connection_name": connection.name})
             for row in rows:
-                row["conversations"] = [by_slot[(row["time"], item["id"])] for item in conversation_info if (row["time"], item["id"]) in by_slot]
+                row["conversations"] = [item for (stamp, _), item in by_slot.items() if stamp == row["time"]]
         return {"safety": safety_summary, "conversation_series": conversation_info, "sessions": active, "messages": counts.get("message", 0), "questions": roles.get("user", 0), "answers": roles.get("assistant", 0), "actions": counts.get("tool_call", 0), "series": rows, "interval_seconds": seconds, "interval_label": dict(INTERVALS)[seconds], "interval_adjusted": False, "window_limited": window_limited, "domain": domain, "viewport": {"start": datetime.fromtimestamp(low, timezone.utc).isoformat(), "end": datetime.fromtimestamp(high, timezone.utc).isoformat()}, "tools": [{"name": t or "Unknown tool", "count": n} for t, n in tools]}
 
 

@@ -238,6 +238,9 @@ def sync_codex(db, connection):
                     raise ValueError(f"Invalid JSON record in {path.name} at byte {offset}")
                 time = timestamp(record.get("timestamp"), session.created_at)
                 type_ = payload.get("type")
+                if record.get("type") == "event_msg" and type_ == "token_count":
+                    from backend.token_usage import codex
+                    codex(db, session, record, time, counts)
                 # response_item is canonical. event_msg message mirrors would double-count.
                 if record.get("type") == "response_item":
                     if type_ == "message" and payload.get("role") in ("user", "assistant"):

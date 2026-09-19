@@ -41,8 +41,8 @@ test("blocking denial, safety chart filtering, evidence and mobile layout", asyn
     await expect(page.getByRole("button", { name: "Denied 1", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByLabel("Safety actions").getByRole("button")).toHaveCount(1);
     await page.getByLabel("Safety actions").getByRole("button").click();
-    await expect(page.getByRole("dialog")).toContainText("Explicit policy prohibition");
-    await expect(page.getByRole("dialog")).toContainText("Hook returned");
+    await expect(page.getByLabel("Action details", { exact: true })).toContainText("Explicit policy prohibition");
+    await expect(page.getByLabel("Action details", { exact: true })).toContainText("Hook returned");
     await page.screenshot({ path: "../data/qa/safety-detail-simple.png" });
     await page.getByRole("button", { name: "Close action details" }).click();
     await page.evaluate(() => window.scrollTo(0, 0));

@@ -39,8 +39,9 @@ def test_conversation_overflow_and_zoom_keep_identity(store):
         db.commit()
     c = client()
     data = c.get('/api/metrics', params={'conversations': True}).json()
-    assert len(data['conversation_series']) == 9
-    assert sum(s['messages'] for row in data['series'] for s in row['conversations'] if s['id']=='other') == 4
+    assert len(data['conversation_series']) == 12
+    assert sum(s['messages'] for row in data['series'] for s in row['conversations']) == 12
+    assert all(s['id'] != 'other' for s in data['conversation_series'])
     zoom = c.get('/api/metrics', params={'conversations': True, 'view_start': '2026-09-15T10:00:00Z', 'view_end': '2026-09-15T10:01:00Z'}).json()
     assert zoom['conversation_series'] == data['conversation_series']
 

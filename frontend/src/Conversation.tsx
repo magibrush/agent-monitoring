@@ -57,8 +57,6 @@ export function Conversation({
     [offset, setOffset] = useState(0),
     [kind, setKind] = useState(initialKind),
     [action, setAction] = useState(base.get("action") || ""),
-    [context, setContext] = useState(false),
-    [full, setFull] = useState(false),
     [anchor, setAnchor] = useState<number | null>(null),
     [surrounding, setSurrounding] = useState(false);
   const mode = base.get("search_mode") || "words";
@@ -68,12 +66,7 @@ export function Conversation({
   query.set("offset", String(offset));
   query.set("kind", kind);
   query.set("action", action);
-  query.set("include_context", String(context));
-  if (full) {
-    query.delete("start");
-    query.delete("end");
-    query.delete("days");
-  }
+  query.set("include_context", "false");
   if (surrounding) query.delete("tool");
   if (anchor) query.set("anchor", String(anchor));
   const events = useQuery({
@@ -142,29 +135,7 @@ export function Conversation({
           ))}
         </select>
       </div>
-      <div className="detail-options">
-        <label>
-          <input
-            type="checkbox"
-            checked={context}
-            onChange={(e) => {
-              setContext(e.target.checked);
-              reset();
-            }}
-          />
-          Show setup context
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={full}
-            onChange={(e) => {
-              setFull(e.target.checked);
-              reset();
-            }}
-          />
-          Full session time range
-        </label>
+      {(search || kind || action || (!surrounding && base.get("tool"))) && <div className="detail-options">
         {(search || kind || action || (!surrounding && base.get("tool"))) && (
           <button
             className="secondary"
@@ -180,14 +151,7 @@ export function Conversation({
             Show surrounding conversation
           </button>
         )}
-      </div>
-      <div className="detail-note">
-        {search
-          ? `${events.data?.total ?? 0} matching records · ${mode === "words" ? "whole word / phrase" : "substring"} · matching tool records are expanded`
-          : "Messages and tool records in chronological order"}
-        {session.match?.kind === "title" &&
-          " · session title matched your search"}
-      </div>
+      </div>}
       <div className="conversation-body">
         {events.error && (
           <div className="error" role="alert">

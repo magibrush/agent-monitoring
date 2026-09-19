@@ -7,11 +7,13 @@ export function RangeNavigator({
   viewport,
   interval,
   onChange,
+  kind = "all",
 }: {
   overview: Metrics;
   viewport: Metrics["viewport"];
   interval: number;
   onChange: (start: number, end: number) => void;
+  kind?: "all" | "sessions" | "messages" | "actions" | "tokens";
 }) {
   const root = useRef<HTMLDivElement>(null);
   const gesture = useRef<{ mode: string; x: number; window: Window } | null>(
@@ -111,14 +113,15 @@ export function RangeNavigator({
     onChange(w.start, w.end);
   }
   const rows = overview.series;
+  const amount = (r: Metrics["series"][number]) => kind === "tokens" ? (r.input_tokens ?? 0) + (r.output_tokens ?? 0) : kind === "sessions" ? r.sessions ?? 0 : kind === "actions" ? r.actions : kind === "messages" ? r.user + r.assistant : r.actions + r.user + r.assistant;
   const peak = Math.max(
     1,
-    ...rows.map((r) => Math.log10(1 + r.actions + r.user + r.assistant)),
+    ...rows.map((r) => Math.log10(1 + amount(r))),
   );
   const points = rows
     .map(
       (r) =>
-        `${Math.max(0, Math.min(100, percent(r.time)))},${38 - (Math.log10(1 + r.actions + r.user + r.assistant) / peak) * 33}`,
+        `${Math.max(0, Math.min(100, percent(r.time)))},${38 - (Math.log10(1 + amount(r)) / peak) * 33}`,
     )
     .join(" ");
   return (

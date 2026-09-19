@@ -5,9 +5,11 @@ import { createPortal } from "react-dom";
 export function ChartTooltip({
   point,
   children,
+  className = "",
 }: {
   point: { x: number; y: number };
   children: ReactNode;
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 8, top: 8 });
@@ -41,7 +43,7 @@ export function ChartTooltip({
     <div
       ref={ref}
       role="tooltip"
-      className="signal-tooltip chart-tooltip-overlay"
+      className={`signal-tooltip chart-tooltip-overlay ${className}`}
       style={{ ...position }}
     >
       {children}

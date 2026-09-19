@@ -100,6 +100,9 @@ def sync_claude(db, connection):
                     record_id = str(record.get("uuid") or hashlib.sha256(
                         json.dumps(record, sort_keys=True).encode()).hexdigest())
                     time = timestamp(record.get("timestamp"), session.created_at)
+                    if role == "assistant":
+                        from backend.token_usage import claude
+                        claude(db, session, message, record_id, time)
                     for index, block in enumerate(content):
                         if not isinstance(block, dict):
                             continue

@@ -74,6 +74,17 @@ class Event(Base):
     hook_seen_at: Mapped[str | None] = mapped_column(String(40))
 
 
+class TokenUsage(Base):
+    __tablename__ = "token_usage"
+    __table_args__ = (UniqueConstraint("session_id", "external_id"), Index("ix_token_usage_session_time", "session_id", "occurred_at"))
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"))
+    external_id: Mapped[str] = mapped_column(String(250))
+    occurred_at: Mapped[str] = mapped_column(String(40))
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+
+
 class HookObservation(Base):
     __tablename__ = "hook_observations"
     __table_args__ = (UniqueConstraint("connection_id", "fingerprint"),)

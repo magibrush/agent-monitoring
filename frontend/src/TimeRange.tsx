@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarDays } from "lucide-react";
 export interface Range {
   start: string;
@@ -24,6 +24,7 @@ export function TimeRange({
   const [start, setStart] = useState(localValue(value.start)),
     [end, setEnd] = useState(localValue(value.end)),
     [error, setError] = useState("");
+  useEffect(() => { setStart(localValue(value.start)); setEnd(localValue(value.end)); setError(""); }, [value.start, value.end]);
   function apply(range: Range) {
     onChange(range);
     setStart(localValue(range.start));
@@ -58,10 +59,6 @@ export function TimeRange({
       </summary>
       <div className="range-popover">
         <strong>Time range</strong>
-        <p>
-          Fit the data, choose a recent window, or specify exact dates and
-          times.
-        </p>
         <div className="range-presets">
           <button className="secondary" onClick={() => apply(FIT)}>
             All time
@@ -122,9 +119,6 @@ export function TimeRange({
               onChange={(e) => setEnd(e.target.value)}
             />
           </label>
-          <small>
-            {Intl.DateTimeFormat().resolvedOptions().timeZone} · end exclusive
-          </small>
           {error && (
             <p className="error" role="alert">
               {error}

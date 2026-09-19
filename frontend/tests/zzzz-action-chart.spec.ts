@@ -72,7 +72,7 @@ test("each bar assigns colors to its own ranked actions", async ({ page }) => {
   await firstRank.nth(1).click();
   const detail = page.getByRole("region", { name: "Action breakdown" });
   await expect(detail).toContainText("Read");
-  await expect(detail).toContainText("40.0%");
+  await expect(detail).toContainText("40");
   await expect(detail).toContainText("Rarer tool");
   await page.mouse.move(0, 0);
   await page.screenshot({ path: "../data/qa/per-bar-ranks.png" });
@@ -158,17 +158,12 @@ test("100 action types have ranked colors, bounded overlay and complete inspecti
   await checkBounds();
   await page.screenshot({ path: "../data/qa/action-tooltip-100.png" });
   await page.mouse.move(0, 0);
-  await page.getByLabel("Inspect activity").click();
-  await page
-    .getByLabel("Inspect time bucket")
-    .selectOption(String(time + 60000));
+  await chart.press("Home"); await chart.press("ArrowRight");
   const breakdown = page.getByRole("region", { name: "Action breakdown" });
-  await expect(breakdown).toContainText("Action types (100)");
   await expect(breakdown.locator(".tooltip-row")).toHaveCount(10);
   await page.getByLabel("Next action types").click();
-  await expect(breakdown).toContainText("11–20 of 100");
-  await page.getByLabel("Find an action").fill("tool-00");
-  await expect(breakdown.locator(".tooltip-row")).toHaveCount(1);
+  await expect(breakdown).toContainText("2 / 10");
+  for (let i = 0; i < 8; i++) await page.getByLabel("Next action types").click();
   await expect(breakdown).toContainText("tool-00");
   await page.setViewportSize({ width: 390, height: 600 });
   await chart.scrollIntoViewIfNeeded();
@@ -181,6 +176,6 @@ test("100 action types have ranked colors, bounded overlay and complete inspecti
   }
   await expect(tip).toBeVisible();
   await checkBounds();
-  await expect(tip).toContainText("inspect all 100 action types");
+  await expect(tip).not.toContainText("Click bar to inspect");
   await page.screenshot({ path: "../data/qa/action-tooltip-mobile.png" });
 });

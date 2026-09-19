@@ -73,7 +73,7 @@ test("CLI and Desktop share a source directory without mixing sessions", async (
   await expect(
     page.getByText("Synthetic workspace", { exact: true }),
   ).toBeVisible();
-  await page.getByLabel("Close conversation").click();
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
   await page.getByRole("button", { name: /^Connections/ }).click();
   await card.getByRole("button", { name: "Pause", exact: true }).click();
   await expect(

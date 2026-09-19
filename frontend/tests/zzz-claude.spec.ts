@@ -24,12 +24,12 @@ test("Claude Code setup, search, chart and Explorer", async ({ page, request }) 
   await page.getByRole("button", { name: "Overview", exact: true }).click();
   await page.getByLabel("Filter connection").selectOption(claude.id);
   await page.getByLabel("Color bars by").selectOption("conversation");
-  await expect(page.getByLabel("Conversation colors")).toContainText("Review Claude adapter");
+  await expect(page.getByLabel("Conversation colors")).toHaveCount(0);
   await page.getByRole("button", { name: /Review Claude adapter/ }).first().click();
   await page.locator("details").filter({ hasText: "Claude fixture file contents" }).locator("summary").click();
   await expect(page.getByText("Claude fixture file contents", { exact: true })).toBeVisible();
   await page.screenshot({ path: "../data/qa/claude-explorer.png" });
-  await page.getByLabel("Close conversation").click();
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Add connection", exact: true }).first().click();
   await dialog.getByRole("radio", { name: "Claude Code", exact: true }).check();
