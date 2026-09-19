@@ -12,7 +12,7 @@ A local agent monitoring app: React + TypeScript frontend, Python API, and SQLit
 - Codex Desktop, Codex CLI, and Claude Code local transcript watchers, with durable checkpoints, pause/resume, source checks, sync errors, and manual sync.
 - Local-only HTTP access, SQLite WAL, SQLAlchemy models, Alembic migrations, and tests.
 
-Codex Desktop, Codex CLI, and Claude Code are supported integrations. Enforcement workers are **not** implemented. Codex integration depends on the local transcript format and routes records by their original Desktop or CLI provenance. Recorded tool calls do not prove success. Read the [ingestion and enforcement research](docs/ingestion-and-enforcement.md) before building the security layer.
+Codex Desktop, Codex CLI, and Claude Code are supported integrations. Pre-tool hooks support blocking evaluation with one Anthropic Haiku judge, deterministic prohibitions, deadline handling, and safety outcomes in the existing charts. See [safety setup and boundaries](docs/rfc-005-blocking-safety.md). Connections without the blocking option retain shadow evaluation. Recorded decisions do not prove execution success or complete protection.
 
 ## Stack choices
 
@@ -25,7 +25,7 @@ Codex Desktop, Codex CLI, and Claude Code are supported integrations. Enforcemen
 | Persistence | SQLite WAL, SQLAlchemy 2, Alembic | Simple local setup, durable identity, controlled schema changes |
 | Later | PostgreSQL + transactional outbox | Multiple workers/hosts and stronger concurrent ingestion |
 
-The SQLite database lives at `data/monitor.db`. It contains private chat text and relevant raw provider records in plaintext. The app does not make model API calls or require API keys. Source files are only read; connecting does not modify the desktop apps. Bind to loopback only; this is a single-user local app, not a secured multi-user deployment.
+The SQLite database lives at `data/monitor.db`. It contains private chat text, raw provider records, and safety evaluations in plaintext. Fill `.secrets/anthropic.key` to enable Haiku workers; new pre-tool action arguments and bounded preceding context are sent to Anthropic after limited redaction. Without a key, jobs wait locally. Bind to loopback only; this is a single-user local app, not a secured multi-user deployment.
 
 ## Run on Windows
 
@@ -44,6 +44,8 @@ uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000
 Open **http://127.0.0.1:8000**. The Python service serves the built frontend and API from the same origin. Run only **one** Uvicorn worker in this version; the collector is in-process and write serialization is process-local.
 
 After installing dependencies, you can also launch everything with `powershell -ExecutionPolicy Bypass -File scripts/start.ps1` from the project root.
+
+That launcher also starts two parallel safety evaluation threads in a separate worker process. If you start Uvicorn manually, run `scripts/start-worker.ps1` separately. Put your API key alone in the ignored `.secrets/anthropic.key` file; workers notice it without restarting. Open **Safety → Settings → Protection by connection → Configure → Enable blocking Haiku evaluation**, then restart agent sessions and trust the Codex handler if prompted. Covered actions wait up to 60 seconds; an allow verdict or your approval continues to native permissions. Review requests appear in **Safety > Needs your decision** with **Approve** and **Deny** controls. The 60-second deadline includes human review; expired calls need a new request. See [human review](docs/human-review.md). The **Safety** workspace puts live approval cards first, followed by a compact action history. Select an outcome chip or chart bar to filter history; click an action to see its verdict and evidence. History filters do not hide live approvals. Judge setup and protection modes are in Settings. See [RFC 005](docs/rfc-005-blocking-safety.md).
 
 For frontend development, run the same Python service plus `npm run dev` in `frontend`, then open **http://127.0.0.1:5173**. Vite proxies `/api` to port 8000. API reference: **http://127.0.0.1:8000/docs**.
 
@@ -108,6 +110,8 @@ Codex **guardian approval-review threads** copy parent history. They are identif
 
 ## Verify
 
+Transcript rewrites and truncations recover automatically. Relay replays current records without duplicating unchanged observations, retains previously imported history, and continues collecting new activity. No manual repair is needed; rewrite diagnostics appear only in debug logs. See [automatic transcript replay](docs/transcript-recovery.md).
+
 ### Optional live hook observations
 
 Open **Connections → Set up live hooks → Enable live hooks** for a normal profile.
@@ -117,8 +121,8 @@ in `/hooks`. The connection shows **waiting for first hook** until a notificatio
 actually arrives. Run a harmless tool and check **Last received**, then inspect the
 action in Explorer for its hook/transcript source and observed outcome.
 
-The observer only queues local notifications and always exits without a decision.
-Relay never approves, blocks, or changes tools. Queued observations survive downtime;
+By default the observer only queues local notifications and exits without a decision.
+The optional blocking gate holds covered actions for Haiku and denies on policy rejection or evaluation failure. Queued observations survive downtime;
 the dashboard refreshes every two seconds. Exact tool-call IDs prevent duplicate
 action counts when transcripts catch up. Unknown results stay unknown.
 

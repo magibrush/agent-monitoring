@@ -3,17 +3,18 @@ import logging
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, or_
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from backend.connectors import sync_connection, inspect_source, source_root
 from backend.providers import PROVIDERS, default_path
-from backend.db import ChatSession, Checkpoint, Event, HookObservation, Connection, ROOT, SessionLocal, now
+from backend.db import ChatSession, Checkpoint, Event, HookObservation, Connection, SafetyEvaluation, SafetyAttempt, ROOT, SessionLocal, now
 from backend import hooks
 
 lock = threading.RLock()
@@ -29,8 +30,10 @@ def synchronize(connection_id=None):
         for id_ in ids:
             connection = db.get(Connection, id_)
             try:
+                connection.error = None
                 sync_connection(db, connection)
-                connection.status, connection.error, connection.last_sync = "watching", None, now()
+                connection.status = "watching"
+                connection.last_sync = now()
                 db.commit()
             except Exception as exc:
                 db.rollback()
@@ -49,7 +52,7 @@ async def lifespan(app):
                 await asyncio.to_thread(synchronize_hooks)
             except Exception:
                 logger.exception("Hook collector cycle failed")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.1)
     async def watch():
         while True:
             try:
@@ -68,8 +71,10 @@ async def lifespan(app):
 def synchronize_hooks():
     with lock, SessionLocal() as db:
         for connection in db.scalars(select(Connection).where(Connection.provider.in_(PROVIDERS),
-                Connection.enabled.is_(True), Connection.hooks_enabled.is_(True))).all():
+                or_(Connection.enabled.is_(True), Connection.gate_enabled.is_(True)), Connection.hooks_enabled.is_(True))).all():
             hooks.collect(db, connection)
+        from backend.blocking import dispatch
+        dispatch(db)
 
 
 app = FastAPI(title="Relay · Agent monitoring", lifespan=lifespan)
@@ -102,7 +107,7 @@ def serialize(model):
 def health():
     with SessionLocal() as db:
         db.execute(select(Connection.id).limit(1))
-    return {"status": "ok", "mode": "observation", "poll_seconds": 3, "hook_poll_seconds": 0.5}
+    return {"status": "ok", "mode": "per_connection", "poll_seconds": 3, "hook_poll_seconds": 0.1}
 
 
 @app.get("/api/connections")
@@ -202,6 +207,10 @@ def delete_connection(id_: str):
             raise HTTPException(404, "Connection not found.")
         sessions = select(ChatSession.id).where(ChatSession.connection_id == id_)
         (hooks.queue_path(connection) / "enabled").unlink(missing_ok=True)
+        (hooks.queue_path(connection) / "gate-enabled").unlink(missing_ok=True)
+        evaluations = select(SafetyEvaluation.id).where(SafetyEvaluation.event_id.in_(select(Event.id).where(Event.session_id.in_(sessions))))
+        db.execute(delete(SafetyAttempt).where(SafetyAttempt.evaluation_id.in_(evaluations)))
+        db.execute(delete(SafetyEvaluation).where(SafetyEvaluation.id.in_(evaluations)))
         db.execute(delete(HookObservation).where(HookObservation.connection_id == id_))
         db.execute(delete(Checkpoint).where(Checkpoint.connection_id == id_))
         db.execute(delete(Event).where(Event.session_id.in_(sessions)))
@@ -212,21 +221,24 @@ def delete_connection(id_: str):
 
 
 @app.get("/api/connections/{id_}/hooks")
-def hook_setup(id_: str):
+def hook_setup(id_: str, gate_enabled: bool | None = None):
     with SessionLocal() as db:
         c = db.get(Connection, id_)
         if not c or c.provider not in PROVIDERS:
             raise HTTPException(404, "Connection not found.")
+        if gate_enabled is not None:
+            c.gate_enabled = gate_enabled
         try:
             target, snippet = hooks.setup(c)
         except ValueError as exc:
             raise HTTPException(422, str(exc))
-        return {"path": str(target), "config": snippet, "mode": "observation",
-                "instructions": "Restart the provider session after setup. In Codex, use /hooks to review and trust the observer. A received hook, not installation, confirms compatibility."}
+        return {"path": str(target), "config": snippet, "mode": "blocking" if c.gate_enabled else "observation",
+                "instructions": "Restart the provider session after setup. In Codex, use /hooks to review and trust the handler. Installed settings do not prove enforcement: inspect a blocking request and its gate receipt to verify delivery."}
 
 
 class HookUpdate(BaseModel):
     enabled: bool
+    gate_enabled: bool | None = None
 
 
 @app.patch("/api/connections/{id_}/hooks")
@@ -236,6 +248,8 @@ def update_hooks(id_: str, body: HookUpdate):
         if not c or c.provider not in PROVIDERS:
             raise HTTPException(404, "Connection not found.")
         try:
+            if body.gate_enabled is not None:
+                c.gate_enabled = body.gate_enabled and body.enabled
             hooks.configure(c, body.enabled)
         except (OSError, ValueError) as exc:
             raise HTTPException(422, str(exc))
@@ -266,6 +280,63 @@ def sync(id_: str):
     synchronize(id_)
     with SessionLocal() as db:
         return serialize(db.get(Connection, id_))
+
+
+@app.get("/api/safety")
+def safety_status():
+    from backend.safety import status
+    with SessionLocal() as db:
+        return status(db)
+
+
+@app.get("/api/safety/evaluations/{id_}")
+def safety_evaluation(id_: str):
+    from backend.safety import public
+    with SessionLocal() as db:
+        evaluation = db.get(SafetyEvaluation, id_)
+        if not evaluation:
+            raise HTTPException(404, "Evaluation not found.")
+        return {**public(evaluation), "snapshot": evaluation.snapshot,
+                "attempt_history": [serialize(a) for a in db.scalars(select(SafetyAttempt).where(SafetyAttempt.evaluation_id == id_).order_by(SafetyAttempt.started_at))]}
+
+
+@app.post("/api/safety/evaluations/{id_}/retry", status_code=201)
+def retry_evaluation(id_: str):
+    from backend.safety import public, MAX_PENDING
+    from backend.safety_policy import POLICY_VERSION, MODEL
+    from uuid import uuid4
+    with lock, SessionLocal() as db:
+        original = db.get(SafetyEvaluation, id_)
+        if not original:
+            raise HTTPException(404, "Evaluation not found.")
+        if original.status not in {"failed", "skipped"}:
+            raise HTTPException(409, "Only failed evaluations can be reviewed again.")
+        pending = db.scalar(select(func.count()).select_from(SafetyEvaluation).where(SafetyEvaluation.status.in_(["queued", "running"])))
+        if pending >= MAX_PENDING:
+            raise HTTPException(429, "Evaluation queue is full.")
+        # Review historical evidence, never revive the old hook authorization.
+        job = SafetyEvaluation(event_id=original.event_id, input_hash=original.input_hash, request_key=str(uuid4()),
+            mode="shadow", policy_version=POLICY_VERSION, model=MODEL, snapshot=original.snapshot,
+            rules=original.rules, diagnostics={"retry_of": original.id})
+        db.add(job)
+        db.commit()
+        return public(job)
+
+
+class HumanReview(BaseModel):
+    decision: Literal["approve", "deny"]
+    input_hash: str = Field(min_length=64, max_length=64)
+
+
+@app.post("/api/safety/evaluations/{id_}/review")
+def review_evaluation(id_: str, body: HumanReview):
+    from backend.safety import human_review, public
+    with lock, SessionLocal() as db:
+        if not db.get(SafetyEvaluation, id_):
+            raise HTTPException(404, "Evaluation not found.")
+        if not human_review(db, id_, body.decision, body.input_hash):
+            raise HTTPException(409, "This request expired, was already resolved, or is not awaiting approval. It cannot be resumed; submit a new tool request.")
+        return public(db.get(SafetyEvaluation, id_))
 
 
 from backend.analytics import router

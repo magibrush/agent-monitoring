@@ -13,7 +13,7 @@ from uuid import uuid4
 MAX_BYTES = 1024 * 1024
 
 
-def capture(queue, stream):
+def capture(queue, stream, gate=None, request=None):
     raw = stream.read(MAX_BYTES + 1)
     if len(raw) > MAX_BYTES:
         raise ValueError("Hook payload exceeds 1 MB")
@@ -34,6 +34,10 @@ def capture(queue, stream):
         if total > 256 * MAX_BYTES:
             raise ValueError("Hook queue is full; transcript recovery remains available")
     envelope = {"received_at": datetime.now(timezone.utc).isoformat(), "payload": payload}
+    if gate is not None:
+        envelope["gate"] = gate
+    if request is not None:
+        envelope["request"] = request
     pending = queue / (uuid4().hex + ".tmp")
     try:
         with pending.open("x", encoding="utf-8") as output:

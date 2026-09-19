@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 os.environ['DATABASE_URL'] = 'sqlite:///' + (ROOT / 'data/e2e.db').as_posix()
+os.environ.pop('ANTHROPIC_API_KEY', None)
+os.environ['RELAY_ANTHROPIC_KEY_FILE'] = str(ROOT / 'data/e2e-missing-anthropic.key')
 
 from alembic import command
 from alembic.config import Config

@@ -33,6 +33,7 @@ class Connection(Base):
     last_sync: Mapped[str | None] = mapped_column(String(40))
     created_at: Mapped[str] = mapped_column(String(40), default=now)
     hooks_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    gate_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     hook_last_seen: Mapped[str | None] = mapped_column(String(40))
     hook_error: Mapped[str | None] = mapped_column(Text)
 
@@ -94,6 +95,61 @@ class Checkpoint(Base):
     offset: Mapped[int] = mapped_column(Integer, default=0)
     session_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id"))
     prefix_hash: Mapped[str | None] = mapped_column(String(64))
+    record_counts: Mapped[dict | None] = mapped_column(JSON)
+    tail_hash: Mapped[str | None] = mapped_column(String(64))
+
+
+class SafetyEvaluation(Base):
+    __tablename__ = "safety_evaluations"
+    __table_args__ = (UniqueConstraint("event_id", "input_hash", "request_key", name="uq_safety_request"),
+                     Index("ix_safety_jobs", "status", "available_at"))
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
+    input_hash: Mapped[str] = mapped_column(String(64))
+    request_key: Mapped[str] = mapped_column(String(36), default="")
+    mode: Mapped[str] = mapped_column(String(20), default="shadow")
+    deadline: Mapped[str | None] = mapped_column(String(40))
+    started_at: Mapped[str | None] = mapped_column(String(40))
+    decision: Mapped[str | None] = mapped_column(String(20))
+    decision_at: Mapped[str | None] = mapped_column(String(40))
+    returned_at: Mapped[str | None] = mapped_column(String(40))
+    diagnostics: Mapped[dict | None] = mapped_column(JSON)
+    human_decision: Mapped[str | None] = mapped_column(String(20))
+    reviewed_at: Mapped[str | None] = mapped_column(String(40))
+    policy_version: Mapped[str] = mapped_column(String(40))
+    model: Mapped[str] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(30), default="queued")
+    snapshot: Mapped[dict] = mapped_column(JSON)
+    rules: Mapped[dict] = mapped_column(JSON)
+    gate: Mapped[dict | None] = mapped_column(JSON)
+    result: Mapped[dict | None] = mapped_column(JSON)
+    error: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    lease_token: Mapped[str | None] = mapped_column(String(36))
+    lease_until: Mapped[str | None] = mapped_column(String(40))
+    available_at: Mapped[str] = mapped_column(String(40), default=now)
+    created_at: Mapped[str] = mapped_column(String(40), default=now)
+    completed_at: Mapped[str | None] = mapped_column(String(40))
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    usage: Mapped[dict | None] = mapped_column(JSON)
+
+
+class SafetyWorker(Base):
+    __tablename__ = "safety_workers"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    heartbeat_at: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(40))
+
+
+class SafetyAttempt(Base):
+    __tablename__ = "safety_attempts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    evaluation_id: Mapped[str] = mapped_column(ForeignKey("safety_evaluations.id"), index=True)
+    number: Mapped[int] = mapped_column(Integer)
+    started_at: Mapped[str] = mapped_column(String(40))
+    completed_at: Mapped[str | None] = mapped_column(String(40))
+    error: Mapped[str | None] = mapped_column(Text)
+    diagnostics: Mapped[dict | None] = mapped_column(JSON)
 
 
 def make_engine(url=None):

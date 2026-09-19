@@ -1,13 +1,17 @@
 """Read-only Claude Code JSONL adapter; unrelated Claude Desktop data is excluded."""
 import hashlib
 import json
+import logging
 
 from sqlalchemy import select
 
 from backend.connectors import (MAX_RECORD_BYTES, add_event, complete_records,
                                 content_text, get_session, source_root, timestamp,
                                 transcript_paths)
+from backend.connectors import checkpoint_tail
 from backend.db import Checkpoint
+
+logger = logging.getLogger(__name__)
 
 
 def metadata(stream, path):
@@ -61,11 +65,13 @@ def sync_claude(db, connection):
             Checkpoint.connection_id == connection.id, Checkpoint.path == str(path)))
         with path.open("rb") as stream:
             head, prefix = metadata(stream, path)
-            if checkpoint and (path.stat().st_size < checkpoint.offset or
-                               (prefix and checkpoint.prefix_hash != prefix)):
-                raise ValueError(f"Transcript was replaced or truncated: {path.name}. Create a new connection to re-import it.")
             if head is None:
                 continue
+            if checkpoint and (path.stat().st_size < checkpoint.offset or
+                               checkpoint.prefix_hash != prefix or
+                               (checkpoint.tail_hash and checkpoint_tail(stream, checkpoint.offset) != checkpoint.tail_hash)):
+                checkpoint.offset = 0
+                logger.debug("Replaying rewritten Claude transcript %s; UUID identities preserve imported history", path.name)
             external, parent, kind = identity(head, path)
             session = get_session(db, connection, external, "Untitled session",
                                   timestamp(head.get("timestamp")), "claude_code")
@@ -74,6 +80,8 @@ def sync_claude(db, connection):
             if checkpoint is None:
                 checkpoint = Checkpoint(connection_id=connection.id, path=str(path), offset=0)
                 db.add(checkpoint)
+            if checkpoint.session_id != session.id:
+                checkpoint.offset = 0
             checkpoint.session_id = session.id
             checkpoint.prefix_hash = prefix
             for offset, next_offset, record in complete_records(stream, path, checkpoint.offset):
@@ -114,4 +122,5 @@ def sync_claude(db, connection):
                                 text = "Error: " + text
                             count += add_event(db, session, event_id, "tool_result", "tool", text, time, payload)
                 checkpoint.offset = next_offset
+            checkpoint.tail_hash = checkpoint_tail(stream, checkpoint.offset)
     return count

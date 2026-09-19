@@ -56,7 +56,7 @@ def test_codex_restart_partial_writes_and_correlation(store, tmp_path, provider,
         assert db.scalar(select(ChatSession.title)) == 'Inspect the repository'
 
 
-def test_cli_is_excluded_and_truncation_is_detected(store, tmp_path):
+def test_cli_is_excluded_and_replaced_session_is_imported_separately(store, tmp_path):
     path = tmp_path / 'cli.jsonl'
     transcript(path, 'codex_cli_rs')
     with store() as db:
@@ -66,8 +66,9 @@ def test_cli_is_excluded_and_truncation_is_detected(store, tmp_path):
         assert sync_codex(db, c) == 3
         db.commit()
         path.write_text(record('session_meta', {'id': 'changed', 'originator': 'Codex Desktop'}), encoding='utf-8')
-        with pytest.raises(ValueError, match='replaced or truncated'):
-            sync_codex(db, c)
+        assert sync_codex(db, c) == 0
+        assert db.scalar(select(func.count()).select_from(Event)) == 3
+        assert db.scalar(select(func.count()).select_from(ChatSession)) == 2
 
 
 def test_session_title_index_and_literal_search(store, tmp_path):

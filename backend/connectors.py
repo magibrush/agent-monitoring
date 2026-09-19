@@ -48,10 +48,10 @@ def read_metadata(stream, path):
     return metadata, hashlib.sha256(first).hexdigest()
 
 
-def complete_records(stream, path, offset):
+def complete_records(stream, path, offset, limit=5000):
     """Shared bounded JSONL reader; incomplete final writes are retried."""
     stream.seek(offset)
-    for _ in range(5000):
+    for _ in range(limit):
         start = stream.tell()
         line = stream.readline(MAX_RECORD_BYTES + 1)
         if len(line) > MAX_RECORD_BYTES:
@@ -81,8 +81,9 @@ def inspect_source(path, provider):
 
 def sync_connection(db, connection):
     from backend.claude_code import sync_claude
-    adapter = {"codex": sync_codex, "claude_code": sync_claude}[PROVIDERS[connection.provider].adapter]
-    return adapter(db, connection)
+    if PROVIDERS[connection.provider].adapter == "codex":
+        return sync_codex(db, connection)
+    return sync_claude(db, connection)
 
 
 def timestamp(value, fallback=None):
@@ -140,6 +141,40 @@ def add_event(db, session, external_id, kind, role, text, time, payload, tool_na
     return 1
 
 
+def record_identity(record):
+    # Ordinals and envelope metadata can be added when Codex rewrites a rollout.
+    # Require identical event contents and timestamps, not identical byte layout.
+    return json.dumps([record.get("type"), record.get("timestamp"), record.get("payload")],
+                      sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def replay_id(record, counts):
+    digest = hashlib.sha256(record_identity(record).encode()).hexdigest()
+    counts[digest] = counts.get(digest, 0) + 1
+    return f"record:{digest}:{counts[digest]}"
+
+
+def migrate_byte_ids(db, session):
+    """Lazy migration retains primary keys and all attached audit evidence."""
+    legacy = list(db.scalars(select(Event).where(Event.session_id == session.id,
+        Event.external_id.like("byte:%"))))
+    legacy.sort(key=lambda event: int(event.external_id[5:]))
+    counts = {}
+    occupied = set(db.scalars(select(Event.external_id).where(Event.session_id == session.id)))
+    for event in legacy:
+        identity = replay_id(event.payload, counts)
+        while identity in occupied:
+            identity = replay_id(event.payload, counts)
+        occupied.add(identity)
+        event.external_id = identity
+    db.flush()
+
+
+def checkpoint_tail(stream, offset):
+    stream.seek(max(0, offset - 4096))
+    return hashlib.sha256(stream.read(min(offset, 4096))).hexdigest()
+
+
 def sync_codex(db, connection):
     root = source_root(connection.path)
     expected_source = PROVIDERS[connection.provider].source
@@ -163,21 +198,32 @@ def sync_codex(db, connection):
             metadata, prefix = read_metadata(stream, path)
             if metadata is None:
                 continue
-            if checkpoint and checkpoint.prefix_hash and (checkpoint.prefix_hash != prefix or path.stat().st_size < checkpoint.offset):
-                raise ValueError(f"Transcript was replaced or truncated: {path.name}. Create a new connection to re-import it.")
             source = codex_source(metadata)
             if source is None:
                 unknown += 1
             if source != expected_source:
                 continue
+            moved = False
+            if checkpoint and checkpoint.offset:
+                stream.seek(checkpoint.offset - 1)
+                moved = stream.read(1) != b"\n"
+            replay = checkpoint and (checkpoint.record_counts is None or moved or
+                path.stat().st_size < checkpoint.offset or checkpoint.prefix_hash != prefix or
+                (checkpoint.tail_hash and checkpoint_tail(stream, checkpoint.offset) != checkpoint.tail_hash))
             if checkpoint is None:
                 checkpoint = Checkpoint(connection_id=connection.id, path=str(path), offset=0)
                 db.add(checkpoint)
             external = metadata.get("id") or metadata.get("session_id")
             if not external:
                 raise ValueError(f"Missing session identity in {path.name}")
-            checkpoint.prefix_hash = prefix
             session = get_session(db, connection, external, "Untitled session", timestamp(metadata.get("timestamp")), source)
+            if replay or checkpoint.session_id != session.id:
+                migrate_byte_ids(db, session)
+                checkpoint.offset = 0
+                checkpoint.record_counts = {}
+                logger.debug("Replaying rewritten Codex transcript %s; imported history is retained", path.name)
+            checkpoint.prefix_hash = prefix
+            counts = dict(checkpoint.record_counts or {})
             session.session_type = session_type(metadata)
             session.parent_thread_id = metadata.get("parent_thread_id")
             if titles.get(external):
@@ -197,13 +243,15 @@ def sync_codex(db, connection):
                     if type_ == "message" and payload.get("role") in ("user", "assistant"):
                         text = content_text(payload.get("content"))
                         if text:
-                            count += add_event(db, session, f"byte:{offset}", "message", payload["role"], text, time, record)
+                            count += add_event(db, session, replay_id(record, counts), "message", payload["role"], text, time, record)
                     elif type_ in ("function_call", "custom_tool_call"):
-                        count += add_event(db, session, f"byte:{offset}", "tool_call", "tool", str(payload.get("arguments", payload.get("input", ""))), time, record, payload.get("name", "Unknown tool"))
+                        count += add_event(db, session, replay_id(record, counts), "tool_call", "tool", str(payload.get("arguments", payload.get("input", ""))), time, record, payload.get("name", "Unknown tool"))
                     elif type_ in ("function_call_output", "custom_tool_call_output"):
                         output = payload.get("output", "")
-                        count += add_event(db, session, f"byte:{offset}", "tool_result", "tool", output if isinstance(output, str) else json.dumps(output), time, record)
+                        count += add_event(db, session, replay_id(record, counts), "tool_result", "tool", output if isinstance(output, str) else json.dumps(output), time, record)
                 checkpoint.offset = next_offset
+            checkpoint.record_counts = counts
+            checkpoint.tail_hash = checkpoint_tail(stream, checkpoint.offset)
     if unknown:
         logger.info("Connection %s skipped %s transcripts with unsupported provenance", connection.id, unknown)
     return count

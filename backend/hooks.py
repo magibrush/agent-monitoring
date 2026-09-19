@@ -38,7 +38,17 @@ def setup(connection):
         handler["command"], handler["args"] = args[0], args[1:]
     if os.name == "nt" and connection.provider != "claude_code":
         handler["commandWindows"] = command
-    return target, {"hooks": {phase: [{"hooks": [dict(handler)]}] for phase in phases}}
+    definitions = {phase: [{"hooks": [dict(handler)]}] for phase in phases}
+    if connection.gate_enabled:
+        gate_args = [sys.executable, str(ROOT / "scripts/gate_hook.py"), str(queue_path(connection)), connection.provider, str(root)]
+        gate_command = subprocess.list2cmdline(gate_args) if os.name == "nt" else shlex.join(gate_args)
+        gate = {"type": "command", "command": gate_command, "timeout": 75}
+        if connection.provider == "claude_code":
+            gate["command"], gate["args"] = gate_args[0], gate_args[1:]
+        elif os.name == "nt":
+            gate["commandWindows"] = gate_command
+        definitions["PreToolUse"] = [{"hooks": [gate]}]
+    return target, {"hooks": definitions}
 
 
 def configure(connection, enabled):
@@ -60,7 +70,7 @@ def configure(connection, enabled):
                 if not isinstance(handler, dict):
                     return False
                 invocation = str(handler.get("command", "")) + " " + " ".join(map(str, handler.get("args", [])))
-                return "observe_hook.py" in invocation and marker in invocation.replace("\\", "/")
+                return any(script in invocation for script in ("observe_hook.py", "gate_hook.py")) and marker in invocation.replace("\\", "/")
             group["hooks"] = [h for h in group["hooks"] if not owned(h)]
         hooks[phase] = [g for g in groups if g["hooks"]]
     if enabled:
@@ -83,6 +93,11 @@ def configure(connection, enabled):
         (queue / "enabled").touch()
     else:
         (queue / "enabled").unlink(missing_ok=True)
+    if enabled and connection.gate_enabled:
+        (queue / "gate-enabled").touch()
+    else:
+        (queue / "gate-enabled").unlink(missing_ok=True)
+        connection.gate_enabled = False
     connection.hooks_enabled = enabled
 
 
@@ -157,7 +172,7 @@ def ingest(db, connection, envelope):
     session = resolve_session(db, connection, payload, received)
     if session is None:
         return
-    fingerprint = hashlib.sha256(json.dumps([session.id, payload], sort_keys=True).encode()).hexdigest()
+    fingerprint = hashlib.sha256(json.dumps([session.id, payload, envelope["request"]["id"]] if envelope.get("request") else [session.id, payload], sort_keys=True).encode()).hexdigest()
     if db.scalar(select(HookObservation.id).where(HookObservation.connection_id == connection.id,
                                                 HookObservation.fingerprint == fingerprint)):
         return
@@ -189,6 +204,11 @@ def ingest(db, connection, envelope):
     session.updated_at = max(session.updated_at, received)
     db.add(HookObservation(connection_id=connection.id, fingerprint=fingerprint, event_id=event.id,
                            phase=payload["hook_event_name"], received_at=received, payload=payload))
+    if payload["hook_event_name"] == "PreToolUse":
+        from backend.safety import enqueue
+        job = enqueue(db, event, payload, envelope.get("gate"), envelope.get("request"))
+        if envelope.get("gate", {}).get("returned_at"):
+            job.returned_at = envelope["gate"]["returned_at"]
     connection.hook_last_seen = max(connection.hook_last_seen or received, received)
 
 

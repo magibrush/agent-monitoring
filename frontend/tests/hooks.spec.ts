@@ -13,7 +13,7 @@ test("live observer setup, receipt, transcript correlation and disable", async (
   await page.getByRole("button", { name: /Connections/ }).click();
   const card = page.locator(".connection-card").filter({ hasText: "Live observation test" });
   await card.getByRole("button", { name: "Set up live hooks" }).click();
-  await expect(page.getByRole("dialog")).toContainText("without approving, changing, or blocking");
+  await expect(page.getByRole("dialog")).toContainText("Relay returns no permission decisions");
   await page.getByRole("button", { name: "Enable live hooks", exact: true }).click();
   await expect(card).toContainText("Installed · waiting for first hook");
   async function deliver(phase: string) {

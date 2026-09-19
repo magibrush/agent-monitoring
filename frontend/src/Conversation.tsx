@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Search, Terminal } from "lucide-react";
 import { api, type ChatEvent, type Session } from "./api";
 import { Provider } from "./ui";
+import { SafetyVerdict } from "./Safety";
 
 export const ACTIONS = [
   ["", "All actions"],
@@ -230,6 +231,7 @@ export function Conversation({
               <time>{new Date(event.occurred_at).toLocaleString()}</time>
             </div>
             {event.kind === "tool_call" && event.hook_seen_at && <p className="hook-observation">{event.transcript_seen ? "Hook + transcript" : "Live hook · awaiting transcript"} · {event.hook_state === "unknown" ? "Outcome unknown" : event.hook_state === "requested" ? "Requested · outcome pending" : event.hook_state}</p>}
+            {event.evaluations?.map((evaluation) => <SafetyVerdict key={evaluation.id} evaluation={evaluation} />)}
             {event.role === "tool" || event.kind === "context" ? (
               <details open={Boolean(search) || undefined}>
                 <summary>

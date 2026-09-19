@@ -31,6 +31,7 @@ import {
 } from "./chartSeries";
 import { ChartTooltip } from "./ChartTooltip";
 import { RangeNavigator } from "./RangeNavigator";
+import { SAFETY_SERIES, SafetyInspection } from "./Safety";
 
 const intervals = [
   [60, "1 minute"],
@@ -52,11 +53,14 @@ export function Timeline({
   params,
   colorBy,
   setColorBy,
+  safetyWorkspace = false,
 }: {
+  safetyWorkspace?: boolean;
   params: string;
   colorBy: string;
   setColorBy: (value: string) => void;
 }) {
+  const [safetyOutcome, setSafetyOutcome] = useState("");
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const [actionPage, setActionPage] = useState(0);
   const [actionSearch, setActionSearch] = useState("");
@@ -67,7 +71,7 @@ export function Timeline({
   const [interval, setInterval] = useState("0");
   const [scale, setScale] = useState("linear");
   const conversationColors = useRef(conversationColorAssignments);
-  const effectiveScale = colorBy === "conversation" ? "linear" : scale;
+  const effectiveScale = colorBy === "conversation" || colorBy === "safety" ? "linear" : scale;
   const [bucket, setBucket] = useState<number | null>(null);
   const [inspecting, setInspecting] = useState(false);
   const [lane, setLane] = useState("actions");
@@ -120,7 +124,7 @@ export function Timeline({
   useEffect(() => setContributorOffset(0), [contributorKey, lane]);
   const contributors = useQuery({
     queryKey: ["contributors", narrow.toString(), lane, contributorOffset],
-    enabled: Boolean(data) && inspecting,
+    enabled: Boolean(data) && inspecting && !safetyWorkspace,
     queryFn: () =>
       api<{ total: number; items: Session[] }>(
         `/sessions?${narrow}&sort=${lane === "actions" ? "actions" : "messages"}&limit=5&offset=${contributorOffset}`,
@@ -229,6 +233,7 @@ export function Timeline({
       );
       return {
         ...r,
+        ...Object.fromEntries(SAFETY_SERIES.map(s => [`safety_${s.key}`, r.safety?.[s.key] ?? 0])),
         ranked,
         ...Object.fromEntries(
           conversationSeries.flatMap((s) => {
@@ -369,7 +374,7 @@ export function Timeline({
                       )}
                     </strong>
 
-                    {colorBy === "conversation" ? (
+                    {colorBy === "safety" && kind === "actions" ? <><b>{count(r.actions)} proposed actions</b>{SAFETY_SERIES.map(s => <SeriesTooltipRow key={s.key} label={s.label} color={s.color} value={r.safety?.[s.key] ?? 0} />)}<small>{r.safety?.flagged ?? 0} risk flags (independent of outcome). Click for evidence.</small></> : colorBy === "conversation" ? (
                       <>
                         <b>
                           {count(
@@ -447,7 +452,7 @@ export function Timeline({
                 );
               }}
             />
-            {colorBy === "conversation" ? (
+            {colorBy === "safety" && kind === "actions" ? SAFETY_SERIES.map(s => <Bar key={s.key} name={s.label} stackId="actions" dataKey={`safety_${s.key}`} fill={s.color} maxBarSize={18} isAnimationActive={false} />) : colorBy === "conversation" ? (
               conversationSeries.map((s) => (
                 <Bar
                   key={s.id}
@@ -513,11 +518,12 @@ export function Timeline({
     );
   }
   return (
-    <section className="panel timeline-panel signals-panel">
+    <section className={`panel timeline-panel signals-panel ${safetyWorkspace ? "safety-timeline" : ""}`}>
+      {safetyWorkspace && <div className="panel-heading"><div><h2>Action decisions over time</h2><p className="safety-muted">Select an outcome or a bar to inspect the actions behind it.</p></div></div>}
       <div className="chart-toolbar">
         {" "}
         <div className="signal-settings">
-          <label>
+          {!safetyWorkspace && <label>
             Color by{" "}
             <select
               aria-label="Color bars by"
@@ -526,8 +532,9 @@ export function Timeline({
             >
               <option value="activity">Action rank per bar</option>
               <option value="conversation">Conversation</option>
+              <option value="safety">Safety outcome</option>
             </select>
-          </label>
+          </label>}
           <label>
             Interval{" "}
             <select
@@ -548,19 +555,19 @@ export function Timeline({
               ))}
             </select>
           </label>
-          <label>
+          {!safetyWorkspace && <label>
             Scale{" "}
             <select
               aria-label="Vertical scale"
               title="Logarithmic scale preserves zero counts; hover for exact values"
               value={effectiveScale}
-              disabled={colorBy === "conversation"}
+              disabled={colorBy === "conversation" || colorBy === "safety"}
               onChange={(e) => setScale(e.target.value)}
             >
               <option value="log">Logarithmic</option>
               <option value="linear">Linear</option>
             </select>
-          </label>
+          </label>}
         </div>
         {data && (
           <div className="window-toolbar">
@@ -625,17 +632,22 @@ export function Timeline({
                 Full range · Auto
               </button>
             </div>
-            <button
+            {!safetyWorkspace && <button
               className="secondary"
               aria-label="Inspect activity"
               aria-expanded={inspecting}
               onClick={() => setInspecting(!inspecting)}
             >
               Inspect
-            </button>
+            </button>}
           </div>
         )}{" "}
       </div>{" "}
+      {data?.safety && <div className="safety-chart-summary" aria-label="Safety outcomes in selected scope">
+        {SAFETY_SERIES.map(s => <button key={s.key} className="text-button" aria-pressed={safetyOutcome === s.key} onClick={() => { setSafetyOutcome(safetyOutcome === s.key ? "" : s.key); setColorBy("safety"); setInspecting(true); setLane("actions"); }}><span><ColorKey color={s.color} />{s.label}: </span><b>{data.safety?.[s.key] ?? 0}</b></button>)}
+        <strong>{data.safety.flagged ?? 0} flagged risks</strong>
+      </div>}
+      {colorBy === "safety" && <p className="rank-explanation">One state per proposed action, at its request time. Released means the hook continued to native permissions, not execution success. Denied is a policy decision; delivery is shown in details. Risk flags are separate. Totals follow the selected scope; bars follow the visible window.</p>}
       {colorBy === "activity" && (
         <p className="rank-explanation">
           Each bar ranks its own actions. Colors show rank, not action identity.
@@ -687,14 +699,14 @@ export function Timeline({
             )}
           </div>
           <div
-            className={`investigation-grid ${inspecting ? "with-inspector" : ""}`}
+            className={`investigation-grid ${inspecting && !safetyWorkspace ? "with-inspector" : ""}`}
           >
             <div className="signal-charts">
               <div className="signal-heading">
                 <h3>Actions</h3>
               </div>
               {plot("actions")}
-              <div className="signal-heading">
+              {!safetyWorkspace && <><div className="signal-heading">
                 <h3>Messages</h3>
                 {colorBy !== "conversation" && (
                   <span
@@ -710,7 +722,7 @@ export function Timeline({
                   </span>
                 )}
               </div>
-              {plot("messages")}
+              {plot("messages")}</>}
               {overview.data && (
                 <RangeNavigator
                   overview={overview.data}
@@ -720,7 +732,7 @@ export function Timeline({
                 />
               )}
             </div>
-            {inspecting && (
+            {inspecting && !safetyWorkspace && (
               <aside className="contribution-panel">
                 <div className="contribution-heading">
                   <h3>
@@ -790,6 +802,7 @@ export function Timeline({
                     className="action-breakdown"
                     aria-label="Action breakdown"
                   >
+                    {colorBy === "safety" && <SafetyInspection key={narrow.toString()} params={narrow.toString()} outcome={safetyOutcome} onOutcomeChange={setSafetyOutcome} />}
                     <h3>Action types ({inspectedActions.length})</h3>
                     <label>
                       Find an action
@@ -967,6 +980,10 @@ export function Timeline({
           <p>Choose a different range or clear the filters.</p>
         </div>
       )}
+      {safetyWorkspace && <div className="safety-review-area">
+        <div className="safety-review-scope"><span>{bucket !== null ? `Selected interval: ${date(bucket)} · ${data?.interval_label ?? ""}` : "Actions in the visible time window"}</span>{bucket !== null && <button className="text-button" onClick={() => setBucket(null)}>Clear interval</button>}</div>
+        <SafetyInspection key={narrow.toString()} params={narrow.toString()} outcome={safetyOutcome} onOutcomeChange={setSafetyOutcome} />
+      </div>}
       {opened && (
         <Modal wide close={() => setOpened(null)}>
           <button

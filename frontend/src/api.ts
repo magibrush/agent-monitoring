@@ -9,6 +9,7 @@ export interface Connection {
   last_sync: string | null;
   session_count?: number;
   hooks_enabled: boolean;
+  gate_enabled: boolean;
   hook_last_seen: string | null;
   hook_error: string | null;
 }
@@ -35,6 +36,7 @@ export interface Session {
   match: { kind: string; text: string; event_id: number | null } | null;
 }
 export interface ChatEvent {
+  evaluations?: SafetyEvaluation[];
   transcript_seen: boolean;
   hook_state: string | null;
   hook_seen_at: string | null;
@@ -46,7 +48,33 @@ export interface ChatEvent {
   occurred_at: string;
   action_category: string;
 }
+export interface SafetyEvaluation {
+  human_decision: "approve" | "deny" | null;
+  reviewed_at: string | null;
+  mode: "shadow" | "blocking";
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  decision: string | null;
+  decision_at: string | null;
+  deadline: string | null;
+  returned_at: string | null;
+  diagnostics: unknown;
+  id: string;
+  status: string;
+  model: string;
+  policy_version: string;
+  input_hash: string;
+  attempts: number;
+  latency_ms: number | null;
+  error: string | null;
+  rules: { decision: string; findings: { id: string; reason: string }[] };
+  gate: { decision: string; policy_version: string } | null;
+  result: { recommendation: string; risk: string; reason: string; evidence: string[]; missing_context: string[]; source: string } | null;
+  usage: { input_tokens?: number; output_tokens?: number } | null;
+}
 export interface Metrics {
+  safety?: Record<string, number>;
   conversation_series?: { id: string; title: string; provider: string; connection_name: string }[];
   sessions: number;
   messages: number;
@@ -54,6 +82,7 @@ export interface Metrics {
   answers: number;
   actions: number;
   series: {
+    safety?: Record<string, number>;
     time: number;
     user: number;
     assistant: number;

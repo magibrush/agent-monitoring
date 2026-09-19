@@ -411,20 +411,24 @@ export function ConnectionDialog({
   );
 }
 
-function HookSetup({ connection, close, done }: { connection: Connection; close: () => void; done: () => void }) {
+export function HookSetup({ connection, close, done }: { connection: Connection; close: () => void; done: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const setup = useQuery({ queryKey: ["hook-setup", connection.id], queryFn: () => api<{ path: string; config: unknown; instructions: string }>(`/connections/${connection.id}/hooks`), retry: false, refetchInterval: false });
+  const [gate, setGate] = useState(connection.gate_enabled ?? false);
+  const setup = useQuery({ queryKey: ["hook-setup", connection.id, gate], queryFn: () => api<{ path: string; config: unknown; instructions: string }>(`/connections/${connection.id}/hooks?gate_enabled=${gate}`), retry: false, refetchInterval: false });
   async function save(enabled: boolean) {
     setBusy(true); setError("");
-    try { await api(`/connections/${connection.id}/hooks`, json("PATCH", { enabled })); done(); }
+    try { await api(`/connections/${connection.id}/hooks`, json("PATCH", { enabled, gate_enabled: enabled && gate })); done(); }
     catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
   return <Modal close={() => { if (!busy) close(); }}>
     <div className="modal-heading"><div><h2 id="dialog-title">Live hook observations</h2><p>{connection.name}</p></div><button className="icon-button" aria-label="Close hook setup" disabled={busy} onClick={close}><X size={20} /></button></div>
-    <div className="hook-setup-body"><p>Observe tool requests and results as they happen. Relay records activity without approving, changing, or blocking actions.</p>
+    <div className="hook-setup-body"><p>Observe tool requests and results as they happen. New pre-tool observations are evaluated in shadow mode.</p>
     <p>Notifications are saved locally while Relay is offline and matched with transcript history. The dashboard refreshes every 2 seconds.</p>
+    <label className="safety-gate-choice"><input type="checkbox" checked={gate} disabled={busy} onChange={e => setGate(e.target.checked)} />Enable blocking Haiku evaluation</label>
+    <p>{gate ? "Covered tool calls pause for rules and Haiku evaluation, for up to 60 seconds. Only a valid allow verdict or your approval continues to native provider permissions. Review verdicts wait in Safety for Approve or Deny within the same 60-second deadline. Denials, unavailable workers and timeouts block the action." : "Shadow mode: Relay returns no permission decisions."}</p>
+    {gate && <p>Partial coverage: subprocesses and unhooked tools can bypass these checks. Pausing transcript collection does not disable the gate. Disable live hooks to remove it. Restart agent sessions after saving.</p>}
     {setup.data && <>
       <div className="connection-detail"><span>PROVIDER SETTINGS</span><code>{setup.data.path}</code></div>
       <p>Enabling adds Relay’s observer to this profile and saves a backup of existing settings. Other hooks are preserved.</p>
@@ -432,7 +436,7 @@ function HookSetup({ connection, close, done }: { connection: Connection; close:
       <details><summary>View observer configuration</summary><pre className="hook-config">{JSON.stringify(setup.data.config, null, 2)}</pre></details>
     </>}
     {(error || setup.error) && <div className="error" role="alert">{error || (setup.error as Error).message}</div>}
-    </div><div className="modal-footer hook-setup-footer"><button className="secondary" disabled={busy} onClick={close}>Close</button><button className="primary" disabled={busy || !setup.data} onClick={() => save(!connection.hooks_enabled)}>{busy ? "Updating…" : connection.hooks_enabled ? "Disable live hooks" : "Enable live hooks"}</button></div>
+    </div><div className="modal-footer hook-setup-footer"><button className="secondary" disabled={busy} onClick={close}>Close</button>{connection.hooks_enabled && <button className="secondary" disabled={busy} onClick={() => save(false)}>Disable live hooks</button>}<button className="primary" disabled={busy || !setup.data} onClick={() => save(true)}>{busy ? "Updating…" : connection.hooks_enabled ? "Save hook settings" : "Enable live hooks"}</button></div>
   </Modal>;
 }
 
@@ -515,6 +519,7 @@ export function Connections({
           {error}
         </div>
       )}
+      <p className="safety-muted">Review decisions and configure protection in the Safety workspace tab.</p>
       <div className="connection-grid">
         {items.map((c) => (
           <section className="panel connection-card" key={c.id}>
@@ -547,7 +552,7 @@ export function Connections({
             </div>
             {c.error && <div className="error">{c.error}</div>}
             <div className="connection-detail">
-              <span>LIVE HOOKS · OBSERVATION ONLY</span>
+              <span>LIVE HOOKS · {c.gate_enabled ? "BLOCKING EVALUATION CONFIGURED" : "SHADOW EVALUATION"}</span>
               <strong>{!c.hooks_enabled ? "Not connected" : !c.enabled ? "Paused · notifications queued" : c.hook_last_seen ? `Last received ${date(c.hook_last_seen)}` : "Installed · waiting for first hook"}</strong>
               {c.hook_error && <p className="error">{c.hook_error}</p>}
               <button className="secondary" onClick={() => setHookConnection(c)}>Set up live hooks</button>

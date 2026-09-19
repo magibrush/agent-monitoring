@@ -69,8 +69,8 @@ def test_claude_blocks_resume_partial_and_subagents(store, tmp_path):
         assert sync_claude(db, c) == 0
         assert len(list(db.scalars(select(ChatSession)))) == 3
         path.write_text("", encoding="utf-8")
-        with pytest.raises(ValueError, match="truncated"):
-            sync_claude(db, c)
+        assert sync_claude(db, c) == 0
+        assert len(list(db.scalars(select(Event)))) == 10
 
 
 def test_claude_api_discovery_filters_and_legacy_isolation(store, tmp_path, monkeypatch):

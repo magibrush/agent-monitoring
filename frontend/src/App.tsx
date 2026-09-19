@@ -11,16 +11,18 @@ import {
   Plug,
   Plus,
   Search,
+  ShieldCheck,
   Terminal,
   X,
 } from "lucide-react";
 import { api, type Connection, type Metrics, type Session } from "./api";
 import { ConnectionDialog, Connections, Empty, Modal, Provider } from "./ui";
+import { SafetyWorkspace } from "./SafetyView";
 import { Timeline } from "./Timeline";
 import { FIT, TimeRange, type Range } from "./TimeRange";
 import { ACTIONS, Conversation, Highlight } from "./Conversation";
 
-type Page = "Overview" | "Explorer" | "Connections";
+type Page = "Overview" | "Safety" | "Explorer" | "Connections";
 const number = (n = 0) => Intl.NumberFormat().format(n);
 
 export default function App() {
@@ -168,6 +170,7 @@ export default function App() {
           {(
             [
               { name: "Overview", icon: LayoutDashboard },
+              { name: "Safety", icon: ShieldCheck },
               { name: "Explorer", icon: MessageSquare },
               { name: "Connections", icon: Plug },
             ] as const
@@ -191,13 +194,13 @@ export default function App() {
           <div className="local-note">
             <Database size={17} />
             <div>
-              Stored on this device<small>Your conversations stay local.</small>
+              Stored on this device<small>Judge context is sent to Anthropic.</small>
             </div>
           </div>
           <div className="profile">
             <span>ME</span>
             <div>
-              Local workspace<small>Observation mode</small>
+              Local workspace<small>Monitoring + safety evaluation</small>
             </div>
             <span className="status-dot" />
           </div>
@@ -224,12 +227,9 @@ export default function App() {
           <div className="page-heading">
             <div>
               <h1>
-                {page === "Overview"
-                  ? "Overview"
-                  : page === "Explorer"
-                    ? "Explorer"
-                    : "Connections"}
+                {page}
               </h1>
+              {page === "Safety" && <p className="safety-subtitle">Review tool decisions and manage protection.</p>}
             </div>
             <button className="primary" onClick={() => setAdding(true)}>
               <Plus size={16} />
@@ -270,7 +270,7 @@ export default function App() {
             />
           ) : (
             <>
-              <div className="sticky-controls">
+              {page !== "Safety" && <div className="sticky-controls">
                 <section className="filter-panel">
                   <div className="filter-row">
                     <label className="search global-search">
@@ -460,6 +460,7 @@ export default function App() {
                   </>
                 )}
               </div>
+              }
               {page === "Overview" && (
                 <Timeline
                   key={metricKey}
@@ -468,7 +469,8 @@ export default function App() {
                   setColorBy={setChartColorBy}
                 />
               )}
-              <div className={page === "Explorer" ? "explorer-layout" : ""}>
+              {page === "Safety" && <SafetyWorkspace connections={connections.data ?? []} refresh={refresh} notify={setNotice} />}
+              {page !== "Safety" && <div className={page === "Explorer" ? "explorer-layout" : ""}>
                 <section className="panel session-panel">
                   <div className="panel-heading">
                     <div className="title-with-count">
@@ -732,6 +734,7 @@ export default function App() {
                   </section>
                 )}
               </div>
+              }
               <div className="workspace-footer">
                 <span>
                   <span className="status-dot" />
@@ -739,7 +742,7 @@ export default function App() {
                     .length ?? 0}{" "}
                   connections watching · refreshes every 2s
                 </span>
-                <span>Observation only · actions are not blocked</span>
+                <span>Protection is configured per connection</span>
               </div>
             </>
           )}

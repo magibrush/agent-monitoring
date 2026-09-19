@@ -197,6 +197,11 @@ def metrics(f: Filters = Depends(), interval: int = Query(0, ge=0), view_start: 
                 slots[stamp * 1000]["tools"].append({"name": name or "Unknown tool", "count": amount})
         for row in rows:
             row["tools"].sort(key=lambda item: (-item["count"], item["name"]))
+        from backend.safety_analytics import aggregate
+        safety_summary, safety_slots = aggregate(db, conditions, bucket,
+            datetime.fromtimestamp(low, timezone.utc).isoformat(), datetime.fromtimestamp(high, timezone.utc).isoformat())
+        for row in rows:
+            row["safety"] = safety_slots.get(row["time"], {})
         tools = db.execute(select(base.c.tool_name, func.count()).where(base.c.kind == "tool_call").group_by(base.c.tool_name).order_by(func.count().desc()).limit(8)).all()
         conversation_info = []
         if conversations:
@@ -215,7 +220,7 @@ def metrics(f: Filters = Depends(), interval: int = Query(0, ge=0), view_start: 
                 item["actions" if kind == "tool_call" else "messages"] += amount
             for row in rows:
                 row["conversations"] = [by_slot[(row["time"], item["id"])] for item in conversation_info if (row["time"], item["id"]) in by_slot]
-        return {"conversation_series": conversation_info, "sessions": active, "messages": counts.get("message", 0), "questions": roles.get("user", 0), "answers": roles.get("assistant", 0), "actions": counts.get("tool_call", 0), "series": rows, "interval_seconds": seconds, "interval_label": dict(INTERVALS)[seconds], "interval_adjusted": False, "window_limited": window_limited, "domain": domain, "viewport": {"start": datetime.fromtimestamp(low, timezone.utc).isoformat(), "end": datetime.fromtimestamp(high, timezone.utc).isoformat()}, "tools": [{"name": t or "Unknown tool", "count": n} for t, n in tools]}
+        return {"safety": safety_summary, "conversation_series": conversation_info, "sessions": active, "messages": counts.get("message", 0), "questions": roles.get("user", 0), "answers": roles.get("assistant", 0), "actions": counts.get("tool_call", 0), "series": rows, "interval_seconds": seconds, "interval_label": dict(INTERVALS)[seconds], "interval_adjusted": False, "window_limited": window_limited, "domain": domain, "viewport": {"start": datetime.fromtimestamp(low, timezone.utc).isoformat(), "end": datetime.fromtimestamp(high, timezone.utc).isoformat()}, "tools": [{"name": t or "Unknown tool", "count": n} for t, n in tools]}
 
 
 @router.get("/sessions/{id_}/events")
@@ -239,5 +244,33 @@ def events(id_: str, f: Filters = Depends(), offset: int = Query(0, ge=0), limit
                 before = db.scalar(select(func.count()).select_from(query.where(or_(Event.occurred_at < item.occurred_at, and_(Event.occurred_at == item.occurred_at, Event.id < item.id))).subquery()))
                 offset = (before // limit) * limit
         total = db.scalar(select(func.count()).select_from(query.subquery()))
-        items = db.scalars(query.order_by(Event.occurred_at, Event.id).offset(offset).limit(limit))
-        return {"session": dump(session), "total": total, "offset": offset, "items": [{k: v for k, v in dump(e).items() if k != "payload"} for e in items]}
+        items = list(db.scalars(query.order_by(Event.occurred_at, Event.id).offset(offset).limit(limit)))
+        from backend.db import SafetyEvaluation
+        from backend.safety import public
+        evaluations = {}
+        for job in db.scalars(select(SafetyEvaluation).where(SafetyEvaluation.event_id.in_([e.id for e in items])).order_by(SafetyEvaluation.created_at)):
+            evaluations.setdefault(job.event_id, []).append(public(job))
+        return {"session": dump(session), "total": total, "offset": offset, "items": [{**{k: v for k, v in dump(e).items() if k != "payload"}, "evaluations": evaluations.get(e.id, [])} for e in items]}
+
+
+@router.get("/safety/actions")
+def safety_actions(f: Filters = Depends(), safety_state: Literal["", "pending", "awaiting_review", "released", "denied", "error", "shadow", "unassessed"] = "",
+                   flagged_only: bool = False, offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
+    from backend.db import SafetyEvaluation
+    from backend.safety_analytics import latest, state, flagged
+    from backend.safety import public
+    jobs = latest()
+    query = select(Event, SafetyEvaluation, ChatSession.title, state(jobs.c).label("safety_state"), flagged(jobs.c).label("flagged")).select_from(Event)
+    query = query.outerjoin(jobs, and_(jobs.c.event_id == Event.id, jobs.c.rank == 1)).outerjoin(SafetyEvaluation, SafetyEvaluation.id == jobs.c.id).join(ChatSession, ChatSession.id == Event.session_id)
+    query = query.where(Event.session_id.in_(selected_sessions(f)), *time_filters(f), *action_filters(f))
+    if safety_state:
+        query = query.where(state(jobs.c) == safety_state)
+    if flagged_only:
+        query = query.where(flagged(jobs.c))
+    with store() as db:
+        total = db.scalar(select(func.count()).select_from(query.subquery()))
+        rows = db.execute(query.order_by(Event.occurred_at.desc(), Event.id.desc()).offset(offset).limit(limit)).all()
+        return {"total": total, "items": [{"event_id": e.id, "session_id": e.session_id, "title": title,
+            "tool_name": e.tool_name, "occurred_at": e.occurred_at, "execution_outcome": e.hook_state,
+            "safety_state": outcome, "flagged": bool(flag), "evaluation": public(job) if job else None}
+            for e, job, title, outcome, flag in rows]}

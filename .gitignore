@@ -7,6 +7,7 @@ data/
 *.pyc
 *.log
 .env
+.secrets/
 .env.*
 !.env.example
 .uv-cache/
