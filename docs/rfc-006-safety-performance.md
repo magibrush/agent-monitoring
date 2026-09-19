@@ -1,6 +1,6 @@
 # RFC 006: Predictable safety decisions and operator triage
 
-Status: milestones 1 and 2 in implementation. Later milestones are proposals.
+Status: milestones 1 and 2 implemented, 19 September 2026. Later milestones are proposals.
 
 ## Problem and current system
 
@@ -52,3 +52,9 @@ Synthetic tests cover queue reservations, fairness caps, attempt time budgets, w
 - [Anthropic routing/workflow guidance](https://www.anthropic.com/engineering/building-effective-agents).
 - [OPA versioned policy bundles](https://www.openpolicyagent.org/docs/management-bundles) and [decision logs](https://www.openpolicyagent.org/docs/management-decision-logs).
 - [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/concepts/semantic-conventions/).
+
+## Implementation verification
+
+124 backend tests and 24 browser tests pass; TypeScript and production build pass. Migration 0010 passed upgrade/downgrade/upgrade on an isolated database. The 12-case offline corpus routes 11 cases to the judge and deterministically rejects one; no live calibration API calls were made, so this establishes plumbing and policy behavior, not model accuracy or production latency. The local database was backed up before migration and the API/two-lane worker restarted with no active blocking requests.
+
+The current implementation remains single-host SQLite. Per-connection admission caps and process-local reserved lanes are not distributed rate limiting. Browser notifications still require an open tab. Interpreter startup before gate-wrapper entry is outside recorded pause time. Protecting SQLite from arbitrary long filesystem I/O or migrating to a separate decision datastore remains future work if measurements show contention.

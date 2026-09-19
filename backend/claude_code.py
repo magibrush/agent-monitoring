@@ -58,7 +58,7 @@ def inspect_claude(path):
     return {"counts": counts, "matching_sessions": counts["claude_code"]}
 
 
-def sync_claude(db, connection):
+def sync_claude(db, connection, batch_size=None):
     count = 0
     for path in transcript_paths(source_root(connection.path, "claude_code")):
         checkpoint = db.scalar(select(Checkpoint).where(
@@ -84,6 +84,7 @@ def sync_claude(db, connection):
                 checkpoint.offset = 0
             checkpoint.session_id = session.id
             checkpoint.prefix_hash = prefix
+            batch_count = 0
             for offset, next_offset, record in complete_records(stream, path, checkpoint.offset):
                 role = record.get("type")
                 message = record.get("message")
@@ -125,5 +126,11 @@ def sync_claude(db, connection):
                                 text = "Error: " + text
                             count += add_event(db, session, event_id, "tool_result", "tool", text, time, payload)
                 checkpoint.offset = next_offset
+                batch_count += 1
+                if batch_size and batch_count % batch_size == 0:
+                    checkpoint.tail_hash = checkpoint_tail(stream, checkpoint.offset)
+                    db.commit()
             checkpoint.tail_hash = checkpoint_tail(stream, checkpoint.offset)
+            if batch_size:
+                db.commit()
     return count

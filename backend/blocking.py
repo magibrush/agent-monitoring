@@ -2,7 +2,7 @@
 import json
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, case
 from backend.db import SafetyEvaluation, Event, ChatSession, Connection, now
 from backend.hooks import queue_path
 from backend.safety import expire
@@ -12,7 +12,7 @@ def dispatch(db):
     expire(db)
     jobs = db.execute(select(SafetyEvaluation, Connection).join(Event, SafetyEvaluation.event_id == Event.id)
         .join(ChatSession, Event.session_id == ChatSession.id).join(Connection, ChatSession.connection_id == Connection.id)
-        .where(SafetyEvaluation.mode == "blocking", SafetyEvaluation.returned_at.is_(None)).order_by(SafetyEvaluation.created_at.desc()).limit(1000)).all()
+        .where(SafetyEvaluation.mode == "blocking", SafetyEvaluation.returned_at.is_(None)).order_by(case((SafetyEvaluation.deadline > now(), 0), else_=1), SafetyEvaluation.deadline.desc()).limit(1000)).all()
     for job, connection in jobs:
         queue = queue_path(connection)
         receipt_path = queue / "receipts" / (job.request_key + ".json")
@@ -50,4 +50,6 @@ def dispatch(db):
             pending.write_text(json.dumps({"id": job.request_key, "input_hash": job.input_hash,
                 "deadline": job.deadline, "decision": job.decision}), encoding="utf-8")
             pending.replace(target)
+            job.published_at = job.published_at or now()
+            db.commit()
     db.commit()

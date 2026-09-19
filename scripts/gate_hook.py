@@ -77,6 +77,7 @@ def matches_connection(payload, provider, root):
 
 def main():
     started = time.monotonic()
+    requested_at = datetime.now(timezone.utc)
     try:
         queue = Path(sys.argv[1])
         # Stale handler after disable/delete is inert.
@@ -93,7 +94,6 @@ def main():
         if len(sys.argv) >= 4 and not matches_connection(payload, sys.argv[2], sys.argv[3]):
             return 0
         result = assess(payload)
-        requested_at = datetime.now(timezone.utc)
         request = {"id": str(uuid4()), "requested_at": requested_at.isoformat(), "deadline": (requested_at + timedelta(seconds=WAIT_SECONDS)).isoformat()}
         action = {"tool_name": payload["tool_name"], "tool_input": payload["tool_input"], "cwd": payload.get("cwd")}
         digest = hashlib.sha256(json.dumps(action, sort_keys=True, ensure_ascii=False).encode()).hexdigest()

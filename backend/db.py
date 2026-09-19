@@ -113,7 +113,7 @@ class Checkpoint(Base):
 class SafetyEvaluation(Base):
     __tablename__ = "safety_evaluations"
     __table_args__ = (UniqueConstraint("event_id", "input_hash", "request_key", name="uq_safety_request"),
-                     Index("ix_safety_jobs", "status", "available_at"))
+                     Index("ix_safety_jobs", "status", "available_at"), Index("ix_safety_mode_created", "mode", "created_at"))
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
     input_hash: Mapped[str] = mapped_column(String(64))
@@ -142,6 +142,11 @@ class SafetyEvaluation(Base):
     created_at: Mapped[str] = mapped_column(String(40), default=now)
     completed_at: Mapped[str | None] = mapped_column(String(40))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+    admitted_at: Mapped[str | None] = mapped_column(String(40))
+    first_started_at: Mapped[str | None] = mapped_column(String(40))
+    review_ready_at: Mapped[str | None] = mapped_column(String(40))
+    published_at: Mapped[str | None] = mapped_column(String(40))
+    rules_ms: Mapped[int | None] = mapped_column(Integer)
     usage: Mapped[dict | None] = mapped_column(JSON)
 
 
@@ -161,6 +166,8 @@ class SafetyAttempt(Base):
     completed_at: Mapped[str | None] = mapped_column(String(40))
     error: Mapped[str | None] = mapped_column(Text)
     diagnostics: Mapped[dict | None] = mapped_column(JSON)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    usage: Mapped[dict | None] = mapped_column(JSON)
 
 
 def make_engine(url=None):

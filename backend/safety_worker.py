@@ -2,6 +2,7 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import logging
+import multiprocessing
 import signal
 import threading
 import time
@@ -9,20 +10,66 @@ from uuid import uuid4
 
 from backend.db import SessionLocal, SafetyWorker, now
 from backend import safety, judge
+from backend.safety_budget import attempt_timeout
 
 log = logging.getLogger(__name__)
 
 
-def run_one(factory=SessionLocal, evaluator=judge.evaluate):
+def _judge_process(channel, job, key):
+    try:
+        verdict, usage = judge.evaluate(job, key)
+        channel.send(("ok", verdict, usage))
+    except judge.JudgeError as exc:
+        channel.send(("error", str(exc), exc.retryable, exc.diagnostics))
+    except Exception:
+        channel.send(("error", "Unexpected evaluator failure.", True, {}))
+    finally:
+        channel.close()
+
+
+def bounded_evaluate(job, key, target=_judge_process):
+    """A socket inactivity timeout alone cannot bound a trickling response."""
+    timeout = attempt_timeout(job)
+    if timeout <= 0:
+        raise judge.JudgeError("Automated evaluation budget exhausted.")
+    context = multiprocessing.get_context("spawn")
+    reader, writer = context.Pipe(duplex=False)
+    process = context.Process(target=target, args=(writer, job, key), daemon=True)
+    started = time.monotonic()
+    try:
+        process.start()
+        writer.close()
+        if not reader.poll(max(0, timeout - (time.monotonic() - started))):
+            raise judge.JudgeError("Judge exceeded its wall-clock budget.", True)
+        try:
+            result = reader.recv()
+        except EOFError:
+            raise judge.JudgeError("Judge process stopped before returning a verdict.", True) from None
+        if time.monotonic() - started > timeout:
+            raise judge.JudgeError("Judge exceeded its wall-clock budget.", True)
+        if result[0] == "error":
+            raise judge.JudgeError(result[1], result[2], result[3])
+        return result[1], result[2]
+    finally:
+        if process.pid:
+            if process.is_alive():
+                process.terminate()
+            process.join(timeout=2)
+            if process.is_alive():
+                process.kill(); process.join(timeout=2)
+        reader.close(); writer.close()
+
+
+def run_one(factory=SessionLocal, evaluator=None, blocking_only=False):
     key = safety.read_key()
     if not key:
         return False
-    job = safety.claim(factory)
+    job = safety.claim(factory, blocking_only=blocking_only)
     if job is None:
         return False
     started = time.monotonic()
     try:
-        verdict, usage = evaluator(job, key)
+        verdict, usage = (evaluator or bounded_evaluate)(job, key)
         safety.finish(factory, job, result=verdict, usage=usage, latency_ms=int((time.monotonic() - started) * 1000))
     except judge.JudgeError as exc:
         safety.finish(factory, job, error=str(exc), retryable=exc.retryable, diagnostics=exc.diagnostics, latency_ms=int((time.monotonic() - started) * 1000))
@@ -31,26 +78,31 @@ def run_one(factory=SessionLocal, evaluator=judge.evaluate):
     return True
 
 
+def worker_lanes(workers):
+    # Shared lanes also prioritize blocking work. Reserved lanes never run shadow.
+    return [True] * max(1, workers - 1) + ([False] if workers > 1 else [])
+
+
 def serve(workers=2):
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
-    def loop():
+    def loop(blocking_only):
         while not stop.is_set():
             try:
-                worked = run_one()
+                worked = run_one(blocking_only=blocking_only)
             except Exception:
                 log.error("Safety worker storage unavailable; retrying.")
                 worked = False
             stop.wait(0.1 if worked else 0.25)
     worker_id = str(uuid4())
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(loop) for _ in range(workers)]
+        futures = [pool.submit(loop, lane) for lane in worker_lanes(workers)]
         try:
             while not stop.is_set():
                 try:
                     with SessionLocal() as db:
-                        db.merge(SafetyWorker(id=worker_id, heartbeat_at=now(), status="ready" if safety.read_key() else "waiting_for_key"))
+                        db.merge(SafetyWorker(id=worker_id, heartbeat_at=now(), status=("blocking_only" if workers == 1 else "ready") if safety.read_key() else "waiting_for_key"))
                         db.commit()
                 except Exception:
                     log.error("Safety worker heartbeat could not be saved; retrying.")

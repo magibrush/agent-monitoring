@@ -79,11 +79,11 @@ def inspect_source(path, provider):
     return {"counts": counts, "matching_sessions": counts[PROVIDERS[provider].source]}
 
 
-def sync_connection(db, connection):
+def sync_connection(db, connection, batch_size=None):
     from backend.claude_code import sync_claude
     if PROVIDERS[connection.provider].adapter == "codex":
-        return sync_codex(db, connection)
-    return sync_claude(db, connection)
+        return sync_codex(db, connection, batch_size=batch_size)
+    return sync_claude(db, connection, batch_size=batch_size)
 
 
 def timestamp(value, fallback=None):
@@ -175,7 +175,7 @@ def checkpoint_tail(stream, offset):
     return hashlib.sha256(stream.read(min(offset, 4096))).hexdigest()
 
 
-def sync_codex(db, connection):
+def sync_codex(db, connection, batch_size=None):
     root = source_root(connection.path)
     expected_source = PROVIDERS[connection.provider].source
     count = 0
@@ -232,6 +232,7 @@ def sync_codex(db, connection):
                 first_message = db.scalar(select(Event.text).where(Event.session_id == session.id, Event.kind == "message", Event.role == "user").order_by(Event.id).limit(1))
                 session.title = first_message.strip().splitlines()[0][:120] if first_message else "Untitled session"
             checkpoint.session_id = session.id
+            batch_count = 0
             for offset, next_offset, record in complete_records(stream, path, checkpoint.offset):
                 payload = record.get("payload", {})
                 if not isinstance(payload, dict):
@@ -253,8 +254,15 @@ def sync_codex(db, connection):
                         output = payload.get("output", "")
                         count += add_event(db, session, replay_id(record, counts), "tool_result", "tool", output if isinstance(output, str) else json.dumps(output), time, record)
                 checkpoint.offset = next_offset
+                batch_count += 1
+                if batch_size and batch_count % batch_size == 0:
+                    checkpoint.record_counts = dict(counts)
+                    checkpoint.tail_hash = checkpoint_tail(stream, checkpoint.offset)
+                    db.commit()
             checkpoint.record_counts = counts
             checkpoint.tail_hash = checkpoint_tail(stream, checkpoint.offset)
+            if batch_size:
+                db.commit()
     if unknown:
         logger.info("Connection %s skipped %s transcripts with unsupported provenance", connection.id, unknown)
     return count

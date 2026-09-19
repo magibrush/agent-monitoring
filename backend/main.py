@@ -18,6 +18,7 @@ from backend.db import ChatSession, Checkpoint, Event, HookObservation, Connecti
 from backend import hooks
 
 lock = threading.RLock()
+hook_lock = threading.RLock()
 logger = logging.getLogger(__name__)
 
 
@@ -31,7 +32,7 @@ def synchronize(connection_id=None):
             connection = db.get(Connection, id_)
             try:
                 connection.error = None
-                sync_connection(db, connection)
+                sync_connection(db, connection, batch_size=100)
                 connection.status = "watching"
                 connection.last_sync = now()
                 db.commit()
@@ -69,12 +70,13 @@ async def lifespan(app):
 
 
 def synchronize_hooks():
-    with lock, SessionLocal() as db:
-        for connection in db.scalars(select(Connection).where(Connection.provider.in_(PROVIDERS),
-                or_(Connection.enabled.is_(True), Connection.gate_enabled.is_(True)), Connection.hooks_enabled.is_(True))).all():
-            hooks.collect(db, connection)
+    with hook_lock, SessionLocal() as db:
         from backend.blocking import dispatch
         dispatch(db)
+        for connection in db.scalars(select(Connection).where(Connection.provider.in_(PROVIDERS),
+                or_(Connection.enabled.is_(True), Connection.gate_enabled.is_(True)), Connection.hooks_enabled.is_(True))).all():
+            hooks.collect(db, connection, limit=10)
+            dispatch(db)
 
 
 app = FastAPI(title="Relay · Agent monitoring", lifespan=lifespan)
@@ -296,8 +298,10 @@ def safety_evaluation(id_: str):
         evaluation = db.get(SafetyEvaluation, id_)
         if not evaluation:
             raise HTTPException(404, "Evaluation not found.")
-        return {**public(evaluation), "snapshot": evaluation.snapshot,
-                "attempt_history": [serialize(a) for a in db.scalars(select(SafetyAttempt).where(SafetyAttempt.evaluation_id == id_).order_by(SafetyAttempt.started_at))]}
+        from backend.safety_metrics import timings
+        attempts = list(db.scalars(select(SafetyAttempt).where(SafetyAttempt.evaluation_id == id_).order_by(SafetyAttempt.started_at)))
+        return {**public(evaluation), "snapshot": evaluation.snapshot, "timings": timings(evaluation, attempts),
+                "attempt_history": [serialize(a) for a in attempts]}
 
 
 @app.post("/api/safety/evaluations/{id_}/retry", status_code=201)

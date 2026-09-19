@@ -63,12 +63,16 @@ def request_body(job, strict=True):
 
 
 def evaluate(job, key):
+    from backend.safety_budget import attempt_timeout
+    timeout = attempt_timeout(job)
+    if timeout <= 0:
+        raise JudgeError("Automated evaluation budget exhausted.")
     body = request_body(job)
     request = urllib.request.Request("https://api.anthropic.com/v1/messages", data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01"}, method="POST")
     diagnostics = {}
     try:
-        with urllib.request.build_opener(NoRedirect).open(request, timeout=25) as response:
+        with urllib.request.build_opener(NoRedirect).open(request, timeout=timeout) as response:
             raw = response.read(128 * 1024 + 1)
         if len(raw) > 128 * 1024:
             raise JudgeError("Judge response exceeded the size limit.")
