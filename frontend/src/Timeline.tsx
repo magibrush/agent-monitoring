@@ -56,7 +56,7 @@ export function Timeline({
   const [actionPage, setActionPage] = useState(0);
   const [scale, setScale] = useState("linear");
   const tokenMode = chartKind === "sessions" && colorBy === "tokens";
-  const effectiveScale = colorBy === "conversation" || colorBy === "safety" ? "linear" : scale;
+  const effectiveScale = scale;
   const [inspecting, setInspecting] = useState(false);
   const lane = chartKind;
   const [contributorOffset, setContributorOffset] = useState(0);
@@ -138,12 +138,14 @@ export function Timeline({
         ),
         transform,
       );
+      const composed = composition(r);
+      const composedParts = cumulativeSegments(composed.map(s => s.count), transform);
       return {
         ...r,
         ...Object.fromEntries(SAFETY_SERIES.map(s => [`safety_${s.key}`, r.safety?.[s.key] ?? 0])),
         ranked,
-        composition: composition(r),
-        ...Object.fromEntries(composition(r).map(s => [`composition_${s.key}`, s.count])),
+        composition: composed,
+        ...Object.fromEntries(composed.map((s, i) => [`composition_${s.key}`, composedParts[i]])),
         plotInput: transform(r.input_tokens ?? 0),
         plotOutput: transform((r.input_tokens ?? 0) + (r.output_tokens ?? 0)) - transform(r.input_tokens ?? 0),
         plotSessions: transform(r.sessions ?? 0),
@@ -385,7 +387,7 @@ export function Timeline({
       <TimeChartControls chart={chart}>
         {chartKind === "sessions" && <label>Color by <select aria-label="Color bars by" value={colorBy} onChange={e => setColorBy(e.target.value)}><option value="activity">Sessions</option><option value="tokens">Tokens · input / output</option></select></label>}
         {chartKind !== "sessions" && <label>Color by <select aria-label="Color bars by" value={colorBy} onChange={e => setColorBy(e.target.value)}><option value="activity">{chartKind === "messages" ? "Role" : "Action rank per bar"}</option><option value="conversation">Conversation</option>{chartKind === "actions" && <option value="safety">Safety outcome</option>}</select></label>}
-        <label>Scale <select aria-label="Vertical scale" value={effectiveScale} disabled={colorBy === "conversation" || colorBy === "safety"} onChange={e => setScale(e.target.value)}><option value="linear">Linear</option><option value="log">Logarithmic</option></select></label>
+        <label>Scale <select aria-label="Vertical scale" value={effectiveScale} onChange={e => setScale(e.target.value)}><option value="linear">Linear</option><option value="log">Logarithmic</option></select></label>
       </TimeChartControls>
       {result.error && (
         <div className="error" role="alert">
