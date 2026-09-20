@@ -14,12 +14,19 @@ type Policies = { revision: number; draft_id: number | null; paused_id: number |
 type Preview = { sampled: number; counts: Record<string, number>; conflicts: string[]; examples: { evaluation_id: string; tool: string; decision: string; reason: string; previous_decision?: string }[] };
 const activities: Record<Activity, string> = { read: "Read files", write: "Write or edit files", shell: "Run shell commands", git_push: "Detected Git pushes", credentials: "Sensitive-file access", network: "Detected network requests", tool: "Use a specific tool" };
 const effects: Record<Effect, string> = { allow: "Approve automatically", review: "Ask me", deny: "Block", judge: "Send to judge" };
-const templates = [
-  { name: "Review Git pushes", activity: "git_push" as Activity, effect: "review" as Effect, icon: GitBranch, detail: "Ask before detected pushes" },
-  { name: "Block sensitive-file access", activity: "credentials" as Activity, effect: "deny" as Effect, icon: ShieldCheck, detail: ".env, private keys and credential paths" },
-  { name: "Review shell commands", activity: "shell" as Activity, effect: "review" as Effect, icon: Terminal, detail: "Ask before shell execution" },
-  { name: "Approve documentation reads", activity: "read" as Activity, effect: "allow" as Effect, icon: FileText, detail: "Skip the judge for scoped file reads" },
+type Preset = { name: string; activity: Activity; effect: Effect; icon: typeof FileText; detail: string; example: string; conditions: Partial<Pick<Rule, "filenames" | "command_contains" | "tool_name">>; suggested?: boolean };
+const templates: Preset[] = [
+  { name: "Keep secrets out of file reads", activity: "read", effect: "deny", icon: ShieldCheck, detail: "Block direct reads of environment files and private keys, including .env.example.", example: ".env, .env.*, *.pem, id_rsa, id_ed25519", conditions: { filenames: [".env", ".env.*", "*.pem", "id_rsa", "id_ed25519"] }, suggested: true },
+  { name: "Ask before changing dependencies", activity: "write", effect: "review", icon: FileText, detail: "Review edits to package manifests and lockfiles before dependencies change.", example: "package.json, package-lock.json, yarn.lock, pnpm-lock.yaml, pyproject.toml, requirements*.txt, uv.lock, poetry.lock", conditions: { filenames: ["package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "pyproject.toml", "requirements*.txt", "uv.lock", "poetry.lock"] }, suggested: true },
+  { name: "Review force pushes", activity: "git_push", effect: "review", icon: GitBranch, detail: "Ask about pushes using --force or --force-with-lease. The short -f flag isn’t covered.", example: "git push --force-with-lease origin main", conditions: { command_contains: "--force" }, suggested: true },
+  { name: "Ask before publishing to npm", activity: "shell", effect: "review", icon: Terminal, detail: "Review commands containing npm publish before a package goes out.", example: "npm publish --access public", conditions: { command_contains: "npm publish" }, suggested: true },
+  { name: "Review Git cleanup", activity: "shell", effect: "review", icon: Terminal, detail: "Ask about commands containing git clean, including dry runs.", example: "git clean -fd", conditions: { command_contains: "git clean" } },
+  { name: "Review new pull requests", activity: "tool", effect: "review", icon: GitBranch, detail: "Ask before the GitHub tool opens a pull request. Change the tool name if yours differs.", example: "mcp__github__create_pull_request", conditions: { tool_name: "mcp__github__create_pull_request" } },
 ];
+const suggestedTemplates = templates.filter(t => t.suggested);
+function presetRule(t: Preset): Rule {
+  return { ...newRule(t.activity, t.effect, t.name), ...structuredClone(t.conditions) };
+}
 function newRule(activity: Activity = "shell", effect: Effect = "review", name = ""): Rule {
   return { schema_version: 2, id: crypto.randomUUID(), name, enabled: true, connection_ids: [], activity, roots: [], extensions: effect === "allow" ? [".md"] : [], filenames: [], tool_name: "", command_contains: "", effect, expires_at: null };
 }
@@ -79,7 +86,7 @@ export function SafetyPolicies({ connections, close }: { connections: Connection
     else transition("activate");
   }
   const scopeText = (r: Rule) => r.connection_ids.length ? r.connection_ids.map(id => connections.find(c => c.id === id)?.name ?? "Removed connection").join(", ") : "All connections";
-  const selectPreset = (t: typeof templates[number]) => setEditor(e => e ? { ...e, generation: e.generation + 1, scope: "all", rule: { ...newRule(t.activity, t.effect, t.name), id: e.rule.id } } : e);
+  const selectPreset = (t: Preset) => setEditor(e => e ? { ...e, generation: e.generation + 1, scope: "all", rule: { ...presetRule(t), id: e.rule.id } } : e);
   return <section className={`policy-workspace ${savingToggle ? "policy-toggle-saving" : ""}`} aria-label="Safety policies">
     <div className="policy-heading"><button className="secondary" onClick={close}><ArrowLeft size={15} />Back to Safety</button><h2>Policies</h2>{!editor && <><button className="secondary" aria-expanded={history} onClick={() => setHistory(!history)}><History size={15} />History</button><button className="primary" data-available={!!data} disabled={!data || busy} onClick={() => draft && !isDraft ? setTab("draft") : edit(newRule())}>{!(draft && !isDraft) && <Plus size={15} />}{draft && !isDraft ? "Open draft" : "Add rule"}</button></>}</div>
     {(error || result.error) && <p className="error" role="alert">{error || result.error?.message}</p>}
@@ -93,7 +100,7 @@ export function SafetyPolicies({ connections, close }: { connections: Connection
         if (!ruleChanges(editor.rules, rows).length) { setEditor(null); return; }
         void run(async () => { await saveRules(rows, editor.revision); });
       }} />
-      <aside className="panel policy-presets" aria-label="Presets"><h3>Presets</h3>{templates.map(t => <button key={t.name} type="button" data-available={true} disabled={busy} onClick={() => selectPreset(t)}><t.icon size={18} /><span>{t.name}</span></button>)}</aside>
+      <aside className="panel policy-presets" aria-label="Presets"><h3>Start with a preset</h3><p>Pick one to fill in the rule, then adjust it to fit.</p>{templates.map(t => <button key={t.name} type="button" data-available={true} disabled={busy} onClick={() => selectPreset(t)}><t.icon size={18} /><span><strong>{t.name}</strong><small>{t.detail}</small><code>{t.example}</code><span className={`policy-effect ${t.effect}`}>{effects[t.effect]}</span></span></button>)}</aside>
     </div> : <>
       {history && <section className="panel policy-history" aria-label="Policy history"><div className="policy-heading"><h3>Applied history</h3></div>
         {!data?.versions.some(v => v.ever_active) && <p>No policies applied yet.</p>}
@@ -108,7 +115,11 @@ export function SafetyPolicies({ connections, close }: { connections: Connection
         <div className="policy-list-heading"><div className="policy-view-switch">{draft ? <><button className={isDraft ? "selected" : ""} aria-pressed={isDraft} onClick={() => setTab("draft")}>Draft <span>{changes.length} {changes.length === 1 ? "change" : "changes"}</span></button><button className={!isDraft ? "selected" : ""} aria-pressed={!isDraft} onClick={() => setTab("live")}>{paused ? "Paused" : "Live"}</button></> : <h3>Rules{paused && <span className="policy-paused-badge">Paused</span>}</h3>}</div>
           <div className="policy-buttons">{isDraft ? <><button className="text-button" data-available={true} disabled={busy} onClick={() => setConfirmDiscard(true)}>Discard draft</button><button className="secondary" data-available={!!changes.length} disabled={busy || !changes.length} onClick={() => { setShowChanges(!showChanges); }}>Review changes</button><button className="primary" data-available={!!changes.length} disabled={busy || !changes.length} onClick={requestApply}>Apply changes</button></> : live ? <button className="secondary policy-pause-toggle" aria-pressed={paused} data-available={true} disabled={busy} onClick={() => transition(paused ? "resume" : "disable")}>{paused ? <Play size={15} /> : <Pause size={15} />}{paused ? "Resume rules" : "Pause rules"}</button> : null}</div>
         </div>
-        {!rules.length && <div className="policy-empty-inline">{isDraft && (live?.rules.length ?? 0) > 0 ? "Applying removes all custom rules." : "No custom rules."}</div>}
+        {data && !rules.length && (isDraft && (live?.rules.length ?? 0) > 0 ? <div className="policy-empty-inline">Applying removes all custom rules.</div> : draft && !isDraft ? <div className="policy-empty-inline">No live rules yet. Your draft is ready to review.<button className="text-button" onClick={() => setTab("draft")}>Open draft</button></div> : <div className="policy-empty">
+          <div className="policy-empty-intro"><div className="policy-empty-illustration" aria-hidden="true"><FileText size={24} /><span /><ShieldCheck size={42} /><span /><GitBranch size={24} /></div><h3>A few rules go a long way</h3><p>No custom rules yet. Start with these four to keep secrets out of file reads and check changes that deserve a second look.</p></div>
+          <div className="policy-starter-rules">{suggestedTemplates.map(t => <div key={t.name}><t.icon size={20} aria-hidden="true" /><div><strong>{t.name}</strong><p>{t.detail}</p><code>{t.example}</code></div><span className={`policy-effect ${t.effect}`}>{effects[t.effect]}</span></div>)}</div>
+          <div className="policy-empty-actions"><button className="primary" disabled={busy} onClick={() => void run(async () => { await saveRules(suggestedTemplates.map(presetRule), data.revision); })}><Plus size={15} />Add suggested rules</button><button className="secondary" disabled={busy} onClick={() => edit(newRule())}>Write my own rule</button><p>Added as a draft for all connections. Edit or remove any rule before applying.</p></div>
+        </div>)}
         {rules.map(r => <div className={`policy-row ${!r.enabled ? "disabled" : ""}`} key={r.id}><span className={`policy-effect ${r.effect}`}>{effects[r.effect]}</span><div className="policy-row-content"><strong>{r.name}{!r.enabled && <small> · Disabled</small>}{r.expires_at && <small> · {new Date(r.expires_at) <= new Date() ? "Expired" : `Expires ${new Date(r.expires_at).toLocaleString()}`}</small>}</strong><span>{activities[r.activity]} · {scopeText(r)}</span>{r.roots.length > 0 && <span>{r.roots.join(", ")}</span>}{(r.extensions.length > 0 || r.filenames.length > 0 || r.tool_name || r.command_contains) && <span>{[r.extensions.join(", "), r.filenames.join(", "), r.tool_name, r.command_contains && `Contains “${r.command_contains}”`].filter(Boolean).join(" · ")}</span>}</div>
           {(!draft || isDraft) && <div className="policy-row-actions"><label className="policy-rule-switch"><input type="checkbox" role="switch" aria-label={`Enable ${r.name}`} checked={r.enabled} data-available={true} disabled={busy} onChange={e => { const enabled = e.target.checked; void run(async () => { await saveRules(rules.map(row => row.id === r.id ? { ...row, enabled } : row), data!.revision); }, true); }} /></label><button className="icon-button" aria-label={`Edit ${r.name}`} data-available={true} disabled={busy} onClick={() => edit(r)}><Pencil size={16} /></button><button className="icon-button" aria-label={`Remove ${r.name}`} data-available={true} disabled={busy} onClick={() => setRemoveRule({rule: r, revision: data!.revision})}><Trash2 size={16} /></button></div>}
         </div>)}
@@ -159,7 +170,7 @@ function RuleEditor({ editor, connections, busy, change, scope, cancel, save }: 
       {file && <label>File names (optional)<input value={filenames} placeholder=".env, .env.*, *.pem" onChange={e => { setFilenames(e.target.value); change({ filenames: split(e.target.value) }); }} /></label>}
     </div>
     {r.expires_at && <p className="safety-muted">Existing expiry: {new Date(r.expires_at).toLocaleString()}</p>}
-    <details className="policy-advanced"><summary>More conditions</summary><div className="policy-fields">
+    <details className="policy-advanced" open={!!r.command_contains || !!r.tool_name && r.activity !== "tool"}><summary>More conditions</summary><div className="policy-fields">
       {!file && <label className="policy-wide">Command contains (optional)<input maxLength={200} value={r.command_contains} placeholder="Literal text, not a regular expression" onChange={e => change({ command_contains: e.target.value })} /></label>}
       {r.activity !== "tool" && <label>Exact tool name (optional)<input value={r.tool_name} onChange={e => change({ tool_name: e.target.value })} /></label>}
 
