@@ -49,9 +49,9 @@ This remains a single-host PoC, not a tamper-resistant boundary. Rules and local
 
 ## Manual verification
 
-1. Create **Review Git pushes**, choose two test connections, save and test. Start a live test and confirm current enforcement stays unchanged.
-2. Apply it, then submit a harmless test Git push request through a blocking test connection. It should reach human approval with **Policy** as its source; deny the request if you do not intend an actual push.
-3. Add **Block sensitive-file access** and check a dummy `.env` path. Confirm a matching action is blocked and other rules remain present.
+1. Choose **Review force pushes**, choose two test connections, save and test. Start a live test and confirm current enforcement stays unchanged.
+2. Apply it, then submit a synthetic Git push request containing `--force` through a blocking test connection without executing the command. It should reach human approval with **Policy** as its source.
+3. Add **Keep secrets out of file reads** and check a direct read of a dummy `.env` path. Confirm a matching action is blocked and other rules remain present.
 4. Check an exact-tool rule and a scoped documentation-read approval on synthetic inputs.
 5. Restore a prior revision. Verify new requests use it while existing assessments remain unchanged.
 

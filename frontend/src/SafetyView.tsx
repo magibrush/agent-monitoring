@@ -5,6 +5,7 @@ import { Bar, ComposedChart, Cell, ReferenceArea, ResponsiveContainer, Tooltip, 
 import { api, json, type Connection, type SafetyEvaluation } from "./api";
 import { PolicyPreferences } from "./PolicyPreferences";
 import { SafetyPolicies } from "./SafetyPolicies";
+import { Incidents, IncidentActionMenu } from "./Incidents";
 import { SafetyDebug, type DebugConfig } from "./SafetyDebug";
 import { SAFETY_SERIES } from "./Safety";
 import { HookSetup, Modal } from "./ui";
@@ -15,7 +16,7 @@ import { SeriesTooltipRow } from "./chartSeries";
 import type { SafetyNotifications } from "./useSafetyNotifications";
 import { FIT, TimeRange, rangeQuery, type Range } from "./TimeRange";
 
-type Action = { event_id: number; title: string; tool_name: string; occurred_at: string; safety_state: string; execution_outcome: string | null; evaluation: SafetyEvaluation | null };
+export type Action = { event_id: number; title: string; tool_name: string; occurred_at: string; safety_state: string; execution_outcome: string | null; evaluation: SafetyEvaluation | null };
 type Actions = { total: number; items: Action[] };
 type Assessment = { snapshot: { action: string; action_truncated: boolean }; attempt_history: unknown[]; timings?: Record<string, number | null> };
 const labels: Record<string, string> = { pending: "Evaluating", awaiting_review: "Awaiting approval", released: "Released", denied: "Denied", error: "Failed / expired", shadow: "Shadow", unassessed: "Not assessed" };
@@ -23,7 +24,7 @@ const explanations: Record<string, string> = { pending: "Queued or being evaluat
 function Outcome({ state }: { state: string }) {
   return <span className="safety-tag" title={explanations[state]}><i style={{ background: SAFETY_SERIES.find(s => s.key === state)?.color }} />{labels[state] ?? state}</span>;
 }
-function currentOutcome(e: SafetyEvaluation | null, fallback: string) {
+export function currentOutcome(e: SafetyEvaluation | null, fallback: string) {
   if (!e) return fallback;
   if (e.returned_at && e.gate?.decision === "pass") return "released";
   if (["error", "expired"].includes(e.decision || "") || ["failed", "skipped"].includes(e.status)) return "error";
@@ -63,7 +64,7 @@ function ApprovalCard({ item }: { item: Action }) {
     {error && <p className="error" role="alert">{error}</p>}
   </article>;
 }
-function ActionDetail({ item, close }: { item: Action; close: () => void }) {
+export function ActionDetail({ item, close, openIncident }: { item: Action; close: () => void; openIncident?: (id: string) => void }) {
   const initial = item.evaluation;
   const detail = useQuery({ queryKey: ["evaluation", initial?.id], queryFn: () => api<SafetyEvaluation & Assessment>(`/safety/evaluations/${initial!.id}`), enabled: Boolean(initial) });
   const e = detail.data ?? initial, client = useQueryClient();
@@ -75,6 +76,7 @@ function ActionDetail({ item, close }: { item: Action; close: () => void }) {
   }
   return <section className="inspection-detail" aria-label="Action details"><div className="modal-heading"><div><h2 id="dialog-title">{item.tool_name} request</h2><p className="action-session-label" title={item.title}><span>Session</span> {item.title || "Untitled session"}</p></div><button className="icon-button" aria-label="Close action details" onClick={close}><X size={20} /></button></div><div className="safety-detail">
     <Outcome state={currentOutcome(e, item.safety_state)} />{e?.result?.source === "debug" && <span className="debug-badge">Debug</span>}<time>{new Date(item.occurred_at).toLocaleString()}</time>
+    {openIncident && <div className="incident-history-action"><IncidentActionMenu key={item.event_id} eventId={item.event_id} tool={item.tool_name} open={openIncident} /></div>}
     {detail.data && e?.status !== "awaiting_review" && <ActionCode action={detail.data.snapshot.action} />}
     {detail.error && <p className="error">{detail.error.message}</p>}
     {e ? <>
@@ -99,6 +101,12 @@ function ActionDetail({ item, close }: { item: Action; close: () => void }) {
 export function SafetyWorkspace({ connections, refresh, notify, notifications }: { notifications: SafetyNotifications; connections: Connection[]; refresh: () => void; notify: (message: string) => void }) {
   const inspector = useRef<HTMLElement>(null);
   const [policies, setPolicies] = useState(false);
+  const [section, setSection] = useState<"incidents" | "history">(new URLSearchParams(location.hash.split("?")[1]).get("view") === "history" ? "history" : "incidents");
+  const [incident, setIncident] = useState<string | null>(new URLSearchParams(location.hash.split("?")[1]).get("incident"));
+  const incidentCounts = useQuery({ queryKey: ["incidents", "count"], queryFn: () => api<{ total: number }>("/safety/incidents?limit=1"), refetchInterval: 3000 });
+  function openIncident(id: string | null) { setIncident(id); setSection("incidents"); window.history.replaceState(null, "", id ? `#safety?incident=${encodeURIComponent(id)}` : "#safety"); }
+  function openHistory() { setSection("history"); window.history.replaceState(null, "", "#safety?view=history"); }
+  useEffect(() => { const navigate = () => { const args = new URLSearchParams(location.hash.split("?")[1]); if (args.has("incident")) openIncident(args.get("incident")); }; window.addEventListener("hashchange", navigate); return () => window.removeEventListener("hashchange", navigate); }, []);
   const [settings, setSettings] = useState(false), [configuring, setConfiguring] = useState<Connection | null>(null);
   const [connection, setConnection] = useState(""), [range, setRange] = useState<Range>(FIT), [outcome, setOutcome] = useState(""), [offset, setOffset] = useState(0), [opened, setOpened] = useState<Action | null>(null);
   const status = useQuery({ queryKey: ["safety"], queryFn: () => api<{ model: string; key_configured: boolean; key_file: string; debug?: DebugConfig; workers: unknown[]; counts: Record<string, number>; performance?: { requests: number; automatic_pause: { p95_ms: number | null; samples: number }; failed: number; expired: number; missing_receipts: number; truncated: boolean } }>("/safety") });
@@ -150,6 +158,8 @@ export function SafetyWorkspace({ connections, refresh, notify, notifications }:
       {approvals.error ? <p className="error">{approvals.error.message}</p> : approvals.isPending ? <p className="safety-muted">Loading requests…</p> : approvals.data?.total === 0 ? <div className="decisions-clear"><CheckCircle2 size={19} />No actions waiting for approval</div> : <div className="review-grid">{approvals.data?.items.map(item => <ApprovalCard key={item.event_id} item={item} />)}</div>}
       {!!approvals.data && approvals.data.total > 20 && <div className="safety-pager"><button disabled={!reviewOffset} onClick={() => setReviewOffset(Math.max(0, reviewOffset - 20))}>Previous</button><button disabled={reviewOffset + 20 >= approvals.data.total} onClick={() => setReviewOffset(reviewOffset + 20)}>Next</button></div>}
     </section>
+    <div className="incident-view-tabs" aria-label="Safety views"><button className={section === "incidents" ? "selected" : ""} aria-pressed={section === "incidents"} onClick={() => openIncident(null)}>Incidents{!!incidentCounts.data?.total && <span>{incidentCounts.data.total}</span>}</button><button className={section === "history" ? "selected" : ""} aria-pressed={section === "history"} onClick={openHistory}>Action history</button></div>
+    {section === "incidents" ? <Incidents connections={connections} selected={incident} open={openIncident} history={openHistory} /> : <>
     <section className="panel safety-history" aria-label="Action history"><div className="safety-history-heading"><h2>Action history</h2><div><select aria-label="Filter connection" value={connection} onChange={e => setConnection(e.target.value)}><option value="">All connections</option>{connections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select><TimeRange value={chart.zoomed && chart.data ? { ...chart.data.viewport, label: "Custom range" } : range} onChange={r => { chart.reset(); setRange(r); }} /></div></div>
       <div className="outcome-filters" aria-label="Safety outcomes in selected scope"><button aria-pressed={!outcome} onClick={() => setOutcome("")}>All <b>{metrics.data?.actions ?? 0}</b></button>{SAFETY_SERIES.map(s => <button key={s.key} aria-pressed={outcome === s.key} title={explanations[s.key]} onClick={() => setOutcome(outcome === s.key ? "" : s.key)}><i style={{ background: s.color }} />{labels[s.key]} <b>{metrics.data?.safety?.[s.key] ?? 0}</b></button>)}</div>
       {metrics.error && <p className="error">{metrics.error.message}</p>}
@@ -180,8 +190,9 @@ export function SafetyWorkspace({ connections, refresh, notify, notifications }:
       <div className="safety-action-list" aria-label="Safety actions">{actions.error ? <p className="error">{actions.error.message}</p> : actions.isPending ? <p>Loading actions…</p> : actions.data?.total === 0 ? <p className="history-empty">No actions in this selection</p> : actions.data?.items.map(item => <button id={`safety-row-${item.event_id}`} className="safety-action-row" aria-pressed={opened?.event_id === item.event_id} key={item.event_id} onClick={() => setOpened(item)}><div><span className="action-row-identity"><strong>{item.tool_name}</strong><span>{item.title}</span></span><span className="action-row-reason">{item.evaluation?.result?.reason || item.evaluation?.error || "No assessment available"}</span></div>{item.evaluation?.result?.source === "debug" && <span className="debug-badge">Debug</span>}<Outcome state={item.safety_state} /><time>{new Date(item.occurred_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time><ChevronRight size={16} /></button>)}</div>
       {!!actions.data?.total && <div className="safety-pager"><small>{offset + 1}–{Math.min(offset + 20, actions.data.total)} of {actions.data.total} actions</small>{actions.data.total > 20 && <><button className="secondary" disabled={!offset} onClick={() => setOffset(offset - 20)}>Previous</button><button className="secondary" disabled={offset + 20 >= actions.data.total} onClick={() => setOffset(offset + 20)}>Next</button></>}</div>}
     </section>
-    <aside ref={inspector} tabIndex={-1} className="panel safety-inspector" aria-label="Action inspector">{opened ? <ActionDetail key={opened.event_id} item={opened} close={closeInspection} /> : <div className="safety-inspector-empty"><Search size={30} strokeWidth={1.4} /><strong>Select an action to inspect</strong><span>Command, judge decision and outcome</span></div>}</aside>
+    <aside ref={inspector} tabIndex={-1} className="panel safety-inspector" aria-label="Action inspector">{opened ? <ActionDetail key={opened.event_id} item={opened} close={closeInspection} openIncident={openIncident} /> : <div className="safety-inspector-empty"><Search size={30} strokeWidth={1.4} /><strong>Select an action to inspect</strong><span>Command, judge decision and outcome</span></div>}</aside>
     </div>
+    </>}
     {settings && <Modal close={() => setSettings(false)}><div className="modal-heading"><h2 id="dialog-title">Safety settings</h2><button className="icon-button" aria-label="Close safety settings" onClick={() => setSettings(false)}><X size={20} /></button></div><div className="safety-settings-body"><SafetyDebug config={status.data?.debug} /><PolicyPreferences /><h3>Performance · last 24 hours</h3>{status.data?.performance && <dl className="decision-facts"><div><dt>Automatic pause p95</dt><dd>{status.data.performance.automatic_pause.p95_ms == null ? "—" : `${(status.data.performance.automatic_pause.p95_ms / 1000).toFixed(2)} s`} ({status.data.performance.automatic_pause.samples} receipts)</dd></div><div><dt>Failed / expired</dt><dd>{status.data.performance.failed} / {status.data.performance.expired}</dd></div><div><dt>Missing receipts</dt><dd>{status.data.performance.missing_receipts}</dd></div><div><dt>Requests</dt><dd>{status.data.performance.requests}{status.data.performance.truncated ? "+ (latest 10,000)" : ""}</dd></div></dl>}<h3>Notifications</h3><p>Keep a Relay tab open to receive new alerts. Clicking an alert opens Safety. Approve and Deny appear where your browser supports them.</p><button className="secondary" onClick={notifications.toggle} disabled={!notifications.supported}>{notifications.enabled ? "Turn off notifications" : "Enable notifications"}</button><h3>Protection by connection</h3><p className="safety-muted">Configured modes. Restart sessions after changes; hook coverage may vary.</p>{connections.length === 0 && <p>Add a connection to configure protection.</p>}{connections.map(c => <div className="safety-setting-row" key={c.id}><div><strong>{c.name}</strong><small>{!c.hooks_enabled ? "Hooks not installed" : c.gate_enabled ? "Blocking configured" : "Shadow configured"}</small></div><button className="secondary" aria-label={`Configure protection for ${c.name}`} onClick={() => { setSettings(false); setConfiguring(c); }}>Configure</button></div>)}<h3>Judge</h3><p>{status.data?.model ?? "Loading…"}</p><p className="safety-muted">API key file</p><code className="safety-path">{status.data?.key_file}</code><p className="safety-muted">The worker reads this file automatically. Start it with scripts/start-worker.ps1.</p><h3>Data sharing</h3><p>Action arguments and bounded conversation context are sent to Anthropic. Secret redaction is limited.</p><p className="safety-muted">Blocking requests expire after 60 seconds, including human review. Shadow mode records assessments without stopping actions.</p></div></Modal>}
     {configuring && <HookSetup connection={configuring} close={() => { setConfiguring(null); setSettings(true); }} done={() => { setConfiguring(null); setSettings(true); refresh(); notify("Protection saved. Restart provider sessions and review Codex hooks in /hooks."); }} />}
   </div>;

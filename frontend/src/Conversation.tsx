@@ -57,7 +57,7 @@ export function Conversation({
     [offset, setOffset] = useState(0),
     [kind, setKind] = useState(initialKind),
     [action, setAction] = useState(base.get("action") || ""),
-    [anchor, setAnchor] = useState<number | null>(null),
+    [anchor, setAnchor] = useState<number | null>(location.hash.startsWith("#explorer?") ? session.match?.event_id ?? null : null),
     [surrounding, setSurrounding] = useState(false);
   const mode = base.get("search_mode") || "words";
   const query = new URLSearchParams(base);

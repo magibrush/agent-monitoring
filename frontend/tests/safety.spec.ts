@@ -17,6 +17,7 @@ test("blocking denial, safety chart filtering, evidence and mobile layout", asyn
     await request.post(`/api/connections/${connection.id}/sync`);
     await page.goto("/");
     await page.getByRole("button", { name: "Safety", exact: true }).click();
+    await page.getByRole("button", { name: "Action history", exact: true }).click();
     await expect(page.getByLabel("Safety evaluation status")).toContainText("Waiting for Anthropic key");
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     const card = page.locator(".safety-setting-row").filter({ hasText: "Safety test" });

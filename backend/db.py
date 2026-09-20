@@ -151,6 +151,57 @@ class SafetyEvaluation(Base):
     usage: Mapped[dict | None] = mapped_column(JSON)
 
 
+class Incident(Base):
+    __tablename__ = "incidents"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    connection_id: Mapped[str] = mapped_column(ForeignKey("connections.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(20), default="concern")
+    status: Mapped[str] = mapped_column(String(20), default="new", index=True)
+    resolution: Mapped[str | None] = mapped_column(String(40))
+    signature: Mapped[str | None] = mapped_column(String(64), index=True)
+    grouping_reason: Mapped[str] = mapped_column(Text)
+    previous_id: Mapped[str | None] = mapped_column(ForeignKey("incidents.id", ondelete="SET NULL"))
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(String(40), default=now)
+    last_activity_at: Mapped[str] = mapped_column(String(40), default=now, index=True)
+    resolved_at: Mapped[str | None] = mapped_column(String(40))
+
+
+class IncidentLink(Base):
+    __tablename__ = "incident_links"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    incident_id: Mapped[str] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    evaluation_id: Mapped[str | None] = mapped_column(ForeignKey("safety_evaluations.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(20), default="automatic")
+    created_at: Mapped[str] = mapped_column(String(40), default=now)
+
+
+class IncidentActivity(Base):
+    __tablename__ = "incident_activity"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    incident_id: Mapped[str] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    text: Mapped[str] = mapped_column(Text)
+    actor: Mapped[str] = mapped_column(String(40), default="local operator")
+    created_at: Mapped[str] = mapped_column(String(40), default=now)
+
+
+class IncidentCandidate(Base):
+    __tablename__ = "incident_candidates"
+    evaluation_id: Mapped[str] = mapped_column(ForeignKey("safety_evaluations.id", ondelete="CASCADE"), primary_key=True)
+    signature: Mapped[str | None] = mapped_column(String(64), index=True)
+    occurred_at: Mapped[str] = mapped_column(String(40), index=True)
+    handled: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class IncidentMonitor(Base):
+    __tablename__ = "incident_monitor"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    enabled_at: Mapped[str] = mapped_column(String(40), default=now)
+
+
 class PolicyVersion(Base):
     __tablename__ = "policy_versions"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

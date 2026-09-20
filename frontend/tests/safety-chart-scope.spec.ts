@@ -16,7 +16,7 @@ test("Safety bars and inspection share outcome and tool scope without a clear-cl
     const total = params.get("safety_state") === "awaiting_review" ? 0 : params.get("safety_state") === "denied" ? (params.get("tool") === "Read" ? 1 : 2) : 5;
     return route.fulfill({ json: { total, items: Array.from({ length: total }, (_, i) => ({ event_id: i, tool_name: "Read", title: "Scoped action", occurred_at: new Date(start + 3600000).toISOString(), safety_state: "denied", evaluation: null })) } });
   });
-  await page.goto("/#safety");
+  await page.goto("/#safety?view=history");
   await page.getByRole("button", { name: "Denied 2", exact: true }).click();
   const bars = page.getByTestId("safety-chart").locator(".recharts-bar-rectangle path");
   await expect(bars).toHaveCount(1);

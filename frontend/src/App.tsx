@@ -69,6 +69,16 @@ export default function App() {
         const args = new URLSearchParams(location.hash.split("?")[1]);
         if (args.get("message")) setNotice(args.get("message")!);
       }
+      if (location.hash.startsWith("#explorer?")) {
+        const hash = location.hash, args = new URLSearchParams(hash.split("?")[1]), id = args.get("session");
+        if (!id) return;
+        void Promise.all([api<{ session: Session & { connection_id: string } }>(`/sessions/${encodeURIComponent(id)}/events?limit=1`), api<Connection[]>("/connections")]).then(([data, sources]) => {
+          if (location.hash !== hash) return;
+          const source = sources.find(c => c.id === data.session.connection_id);
+          setOpened({ ...data.session, messages: 0, actions: 0, provider: source?.provider ?? "", connection_name: source?.name ?? "", match: { kind: "tool_call", text: "", event_id: Number(args.get("event")) || null } });
+          setRange(FIT); setSearch(""); setQuery(""); setAction(""); setTool(""); setDetailKind(""); setPage("Explorer");
+        }).catch(() => setNotice("Could not open this conversation. It may have been removed."));
+      }
     };
     const message = (event: MessageEvent) => {
       if (event.data?.type === "open-review") { location.hash = event.data.hash; navigate(); }

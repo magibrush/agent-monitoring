@@ -21,6 +21,7 @@ test("realistic safety layout, history scope, and flat action detail", async ({ 
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Safety", exact: true }).click();
+    await page.getByRole("button", { name: "Action history", exact: true }).click();
   const queue = page.getByLabel("Awaiting human decisions");
   await expect(queue.getByRole("button", { name: "Approve", exact: true })).toHaveCount(2);
   await page.screenshot({ path: "../data/qa/safety-realistic-desktop.png", fullPage: true });

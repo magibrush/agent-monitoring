@@ -13,7 +13,7 @@ test("Safety chart and actions refresh without a reload", async ({ page, request
     const waiting = new URL(route.request().url()).searchParams.get("safety_state") === "awaiting_review";
     return route.fulfill({ json: { total: waiting ? 0 : count, items: waiting ? [] : Array.from({ length: count }, (_, i) => ({ event_id: i, tool_name: "Read", title: `Live action ${i}`, occurred_at: new Date(start).toISOString(), safety_state: "released", evaluation: null })) } });
   });
-  await page.goto("/#safety");
+  await page.goto("/#safety?view=history");
   await expect(page.getByRole("button", { name: "Released 1", exact: true })).toBeVisible();
   await expect(page.getByLabel("Safety actions").getByRole("button")).toHaveCount(1);
   await page.getByLabel("Safety actions").getByRole("button").first().click();
@@ -24,7 +24,7 @@ test("Safety chart and actions refresh without a reload", async ({ page, request
   await expect(page.getByLabel("Action details", { exact: true })).toBeVisible();
   await page.getByTestId("safety-chart").locator(".recharts-bar-rectangle path").first().hover();
   await expect(page.getByRole("tooltip")).toContainText("2");
-  await expect(page).toHaveURL(/#safety$/);
+  await expect(page).toHaveURL(/#safety\?view=history$/);
 });
 
 test("Last hour keeps a relative query across polling and Overview navigation", async ({ page }) => {
@@ -33,7 +33,7 @@ test("Last hour keeps a relative query across polling and Overview navigation", 
     const url = new URL(request.url());
     if (url.pathname === "/api/metrics" && url.searchParams.get("last_seconds") === "3600") recentRequests.push(url);
   });
-  await page.goto("/#safety");
+  await page.goto("/#safety?view=history");
   await page.locator(".safety-history .range-picker summary").click();
   await page.getByRole("button", { name: "Last hour", exact: true }).click();
   await expect.poll(() => recentRequests.length, { timeout: 7000 }).toBeGreaterThanOrEqual(4);

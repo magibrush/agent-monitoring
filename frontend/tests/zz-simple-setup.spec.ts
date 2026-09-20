@@ -67,7 +67,7 @@ test("simple setup, archives, and conversation-colored bars", async ({
   await page.getByLabel("Filter connection").selectOption(cli.id);
   await page.getByLabel("Color bars by").selectOption("conversation");
   await expect(page.getByLabel("Vertical scale")).toHaveValue("linear");
-  await expect(page.getByLabel("Vertical scale")).toBeDisabled();
+  await expect(page.getByLabel("Vertical scale")).toBeEnabled();
   await expect(page.getByLabel("Conversation colors")).toHaveCount(0);
   await page.getByTestId("actions-chart").focus();
   await page.keyboard.press("Home");

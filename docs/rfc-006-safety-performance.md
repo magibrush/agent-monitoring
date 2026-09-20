@@ -1,6 +1,6 @@
 # RFC 006: Predictable safety decisions and operator triage
 
-Status: milestones 1 and 2 implemented, 19 September 2026. Later milestones are proposals.
+Status: milestones 1–3 implemented. Local incident investigations from milestone 4 are implemented in [RFC 007](rfc-007-incidents.md); authenticated assignment and service-backed alerts remain future work.
 
 ## Problem and current system
 

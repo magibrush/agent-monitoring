@@ -18,7 +18,7 @@ test("rules-first policies support templates, multiple connections, tests, apply
     await expect(page.getByRole("button", { name: "Add connection", exact: true })).toHaveCount(0);
     await page.screenshot({ path: "../data/qa/policies-start-desktop.png", fullPage: true });
     await page.getByRole("button", { name: "Add rule", exact: true }).click();
-    await page.getByLabel("Presets").getByRole("button", { name: "Review Git pushes", exact: true }).click();
+    await page.getByLabel("Presets").getByRole("button", { name: /Review force pushes/ }).click();
     await expect(page.getByRole("combobox", { name: "When", exact: true })).toHaveValue("git_push");
     await page.getByRole("combobox", { name: "Connections", exact: true }).selectOption("selected");
     await page.getByRole("checkbox", { name: "Policy browser fixture", exact: true }).check();
@@ -29,7 +29,7 @@ test("rules-first policies support templates, multiple connections, tests, apply
     let state = await (await request.get("/api/safety/policies")).json();
     const firstDraft = state.draft_id;
     expect(state.versions.find((v: any) => v.id === firstDraft).rules[0].connection_ids).toHaveLength(2);
-    await page.getByRole("button", { name: "Edit Review Git pushes", exact: true }).click();
+    await page.getByRole("button", { name: "Edit Review force pushes", exact: true }).click();
     await page.getByRole("textbox", { name: "Rule name", exact: true }).fill("Review pushes");
     await page.getByRole("button", { name: "Save rule", exact: true }).click();
     await expect(page.getByText("Review pushes", { exact: true }).first()).toBeVisible();
@@ -65,13 +65,13 @@ test("rules-first policies support templates, multiple connections, tests, apply
     await expect(page.getByRole("button", { name: "Pause rules", exact: true })).toBeVisible();
     const first = (await (await request.get("/api/safety/policies")).json()).active_id;
     await page.getByRole("button", { name: "Add rule", exact: true }).click();
-    await page.getByLabel("Presets").getByRole("button", { name: "Block sensitive-file access", exact: true }).click();
+    await page.getByLabel("Presets").getByRole("button", { name: /Keep secrets out of file reads/ }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
     await page.screenshot({ path: "../data/qa/policies-editor-mobile.png", fullPage: true });
     await page.getByRole("button", { name: "Save rule", exact: true }).click();
     await expect(page.getByText("Review pushes", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Block sensitive-file access", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Keep secrets out of file reads", { exact: true }).first()).toBeVisible();
     await page.getByRole("button", { name: "Review changes", exact: true }).click();
     await page.screenshot({ path: "../data/qa/policies-draft-mobile.png", fullPage: true });
     await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();

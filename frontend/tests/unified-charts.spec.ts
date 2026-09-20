@@ -8,6 +8,7 @@ test("right click zooms out in Overview and Safety without inspecting a bar", as
     await page.goto("/");
     for (const view of ["Overview", "Safety"]) {
       await page.getByRole("button", { name: view, exact: true }).click();
+      if (view === "Safety") await page.getByRole("button", { name: "Action history", exact: true }).click();
       await page.getByLabel("Filter connection").selectOption(connection.id);
       const chart = page.getByTestId(view === "Overview" ? "actions-chart" : "safety-chart");
       await expect(chart).toBeVisible();
@@ -61,6 +62,7 @@ test("one Overview chart, shared Safety zoom controls and neutral tooltips", asy
     await page.screenshot({ path: "../data/qa/unified-overview-mobile.png", fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.getByRole("button", { name: "Safety", exact: true }).click();
+    await page.getByRole("button", { name: "Action history", exact: true }).click();
     await page.getByLabel("Filter connection").selectOption(connection.id);
     await expect(page.getByTestId("safety-chart")).toBeVisible();
     await page.getByLabel("Bucket size").selectOption("300");
@@ -114,6 +116,7 @@ test("Safety zoom returns paginated history to its first page", async ({ page, r
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Safety", exact: true }).click();
+    await page.getByRole("button", { name: "Action history", exact: true }).click();
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.locator(".safety-pager")).toContainText("21–40 of 41");
   await page.getByRole("button", { name: "Zoom in", exact: true }).click();

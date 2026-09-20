@@ -14,6 +14,8 @@ A local agent monitoring app: React + TypeScript frontend, Python API, and SQLit
 
 Codex Desktop, Codex CLI, and Claude Code are supported integrations. Pre-tool hooks support blocking evaluation with one Anthropic Haiku judge, deterministic prohibitions, deadline handling, and safety outcomes in the existing charts. See [safety setup and boundaries](docs/rfc-005-blocking-safety.md). Connections without the blocking option retain shadow evaluation. Recorded decisions do not prove execution success or complete protection.
 
+Safety also includes [incident investigations](docs/rfc-007-incidents.md): related concerns and repeated blocks or service failures are grouped into persistent investigations with evidence, notes, and resolution. You can create an incident from action history or attach and detach requests yourself. Resolving an incident never approves an action; live approvals stay at the top of Safety.
+
 ## Stack choices
 
 | Layer | Choice | Reason |

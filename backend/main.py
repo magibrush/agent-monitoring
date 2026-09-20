@@ -61,12 +61,22 @@ async def lifespan(app):
             except Exception:
                 logger.exception("Collector cycle failed")
             await asyncio.sleep(3)
+    async def watch_incidents():
+        from backend.incidents import synchronize as synchronize_incidents
+        while True:
+            try:
+                await asyncio.to_thread(synchronize_incidents)
+            except Exception:
+                logger.exception("Incident grouping cycle failed")
+            await asyncio.sleep(2)
     task = asyncio.create_task(watch())
     hook_task = asyncio.create_task(watch_hooks())
+    incident_task = asyncio.create_task(watch_incidents())
     yield
     task.cancel()
     hook_task.cancel()
-    await asyncio.gather(task, hook_task, return_exceptions=True)
+    incident_task.cancel()
+    await asyncio.gather(task, hook_task, incident_task, return_exceptions=True)
 
 
 def synchronize_hooks():
@@ -203,7 +213,8 @@ class ConnectionUpdate(BaseModel):
 def delete_connection(id_: str):
     # Same lock as collection: no batch can recreate records after removal.
     # All database deletions commit together; source files are never opened.
-    with lock, SessionLocal() as db:
+    from backend.incidents import lock as incident_lock
+    with lock, incident_lock, SessionLocal() as db:
         connection = db.get(Connection, id_)
         if not connection or connection.provider not in PROVIDERS:
             raise HTTPException(404, "Connection not found.")
@@ -362,6 +373,8 @@ from backend.analytics import router
 app.include_router(router)
 from backend.policies import router as policy_router
 app.include_router(policy_router)
+from backend.incidents import router as incident_router
+app.include_router(incident_router)
 
 
 dist = ROOT / "frontend/dist"
