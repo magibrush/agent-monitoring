@@ -111,7 +111,7 @@ def classify(job, event, session, db=None):
     elif source == "policy":
         winner = recorded_rule(db, job) if db is not None else None
         key = [session.connection_id, "policy", winner["id"] if winner else sorted(signal)]
-        title = f"Repeated requests matched {winner["name"]}" if winner else "Repeated policy interruptions"
+        title = f"Repeated requests matched {winner['name']}" if winner else "Repeated policy interruptions"
         reason = "Grouped because the same policy rule interrupted requests on this connection three times within ten minutes. Later matching requests update this item."
     else:
         key = [session.connection_id, session.id, source, signal, event.tool_name, resource or job.input_hash]
