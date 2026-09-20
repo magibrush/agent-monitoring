@@ -194,12 +194,19 @@ def claim(factory, blocking_only=False, debug_only=False):
         if candidate is None:
             return None
         candidate_job = db.get(SafetyEvaluation, candidate)
+        if candidate_job is None:
+            return None
         lease = attempt_timeout(candidate_job) + LEASE_MARGIN if candidate_job.mode == "blocking" else LEASE_SECONDS
         token = str(uuid4())
-        result = db.execute(update(SafetyEvaluation).where(SafetyEvaluation.id == candidate, SafetyEvaluation.status == "queued").values(
-            status="running", started_at=instant, lease_token=token, lease_until=later(lease), first_started_at=func.coalesce(SafetyEvaluation.first_started_at, instant), attempts=SafetyEvaluation.attempts + 1))
+        # A fast evaluator can claim and requeue this candidate between our read
+        # and update. Fence that queued -> running -> queued transition as well
+        # as status, and recheck the retry delay at the actual claim boundary.
+        result = db.execute(update(SafetyEvaluation).where(SafetyEvaluation.id == candidate, SafetyEvaluation.status == "queued",
+            SafetyEvaluation.attempts == candidate_job.attempts, SafetyEvaluation.available_at <= instant).values(
+            status="running", started_at=instant, lease_token=token, lease_until=later(lease), first_started_at=func.coalesce(SafetyEvaluation.first_started_at, instant), attempts=SafetyEvaluation.attempts + 1).execution_options(synchronize_session=False))
         if result.rowcount == 1:
-            job = db.get(SafetyEvaluation, candidate)
+            db.refresh(candidate_job)
+            job = candidate_job
             db.add(SafetyAttempt(id=token, evaluation_id=candidate, number=job.attempts, started_at=instant))
         db.commit()
         return db.get(SafetyEvaluation, candidate) if result.rowcount == 1 else None

@@ -32,7 +32,9 @@ def dispatch(db):
                 job.returned_at = record["returned_at"]
                 if decision in {"expired", "error"}:
                     job.decision = decision
-                    job.error = "Hook could not release the action before its deadline." if decision == "expired" else "Hook failed to accept the decision."
+                    # A hook acknowledging our fail-closed reply did not cause
+                    # the failure. Keep the worker/budget error for diagnosis.
+                    job.error = job.error or ("Hook could not release the action before its deadline." if decision == "expired" else "Hook failed to accept the decision.")
                 db.commit()
                 receipt_path.unlink(missing_ok=True)
                 (queue / "replies" / (job.request_key + ".json")).unlink(missing_ok=True)

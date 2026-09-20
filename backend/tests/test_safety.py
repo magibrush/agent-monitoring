@@ -67,6 +67,40 @@ def test_lease_recovery_fences_late_results(store, tmp_path):
     assert not safety.finish(store, current, result={"recommendation": "allow"})
 
 
+def test_stale_claim_cannot_skip_requeue_delay_or_repeat_attempt_number(store, tmp_path):
+    from sqlalchemy.orm import Session, sessionmaker
+    from backend.db import SafetyAttempt
+    id_ = add_job(store, tmp_path)
+    raced = False
+
+    class DelayedReader(Session):
+        def get(self, entity, ident, **kwargs):
+            nonlocal raced
+            row = super().get(entity, ident, **kwargs)
+            if entity is SafetyEvaluation and ident == id_ and not raced:
+                raced = True
+                # Another worker completes an entire failing attempt while the
+                # first reader still holds its original queued ORM object.
+                other = safety.claim(store)
+                assert other.attempts == 1
+                safety.finish(store, other, error="temporary provider failure", retryable=True)
+            return row
+
+    delayed = sessionmaker(bind=store.kw["bind"], class_=DelayedReader, expire_on_commit=False)
+    assert safety.claim(delayed) is None
+    with store() as db:
+        job = db.get(SafetyEvaluation, id_)
+        assert job.status == "queued" and job.attempts == 1
+        assert job.available_at > safety.now()
+        assert list(db.scalars(select(SafetyAttempt.number).where(SafetyAttempt.evaluation_id == id_))) == [1]
+        job.available_at = safety.later(-1)
+        db.commit()
+    retry = safety.claim(store)
+    assert retry.attempts == 2
+    with store() as db:
+        assert sorted(db.scalars(select(SafetyAttempt.number).where(SafetyAttempt.evaluation_id == id_))) == [1, 2]
+
+
 def test_missing_key_does_not_consume_attempts_and_parallel_workers(store, tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     key = tmp_path / "anthropic.key"

@@ -1,3 +1,4 @@
+import presetData from "./policyPresets.json";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Plus, ShieldCheck, Terminal, GitBranch, FileText, Pencil, Trash2, History, Pause, Play, ChevronDown } from "lucide-react";
@@ -16,14 +17,8 @@ type Preview = { sampled: number; counts: Record<string, number>; conflicts: str
 const activities: Record<Activity, string> = { read: "Read files", write: "Write or edit files", shell: "Run shell commands", git_push: "Detected Git pushes", credentials: "Sensitive-file access", network: "Detected network requests", tool: "Use a specific tool" };
 const effects: Record<Effect, string> = { allow: "Approve automatically", review: "Ask me", deny: "Block", judge: "Send to judge" };
 type Preset = { name: string; activity: Activity; effect: Effect; icon: typeof FileText; detail: string; example: string; conditions: Partial<Pick<Rule, "filenames" | "command_contains" | "tool_name">>; suggested?: boolean };
-const templates: Preset[] = [
-  { name: "Keep secrets out of file reads", activity: "read", effect: "deny", icon: ShieldCheck, detail: "Block direct reads of environment files and private keys, including .env.example.", example: ".env, .env.*, *.pem, id_rsa, id_ed25519", conditions: { filenames: [".env", ".env.*", "*.pem", "id_rsa", "id_ed25519"] }, suggested: true },
-  { name: "Ask before changing dependencies", activity: "write", effect: "review", icon: FileText, detail: "Review edits to package manifests and lockfiles before dependencies change.", example: "package.json, package-lock.json, yarn.lock, pnpm-lock.yaml, pyproject.toml, requirements*.txt, uv.lock, poetry.lock", conditions: { filenames: ["package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "pyproject.toml", "requirements*.txt", "uv.lock", "poetry.lock"] }, suggested: true },
-  { name: "Review force pushes", activity: "git_push", effect: "review", icon: GitBranch, detail: "Ask about pushes using --force or --force-with-lease. The short -f flag isn’t covered.", example: "git push --force-with-lease origin main", conditions: { command_contains: "--force" }, suggested: true },
-  { name: "Ask before publishing to npm", activity: "shell", effect: "review", icon: Terminal, detail: "Review commands containing npm publish before a package goes out.", example: "npm publish --access public", conditions: { command_contains: "npm publish" }, suggested: true },
-  { name: "Review Git cleanup", activity: "shell", effect: "review", icon: Terminal, detail: "Ask about commands containing git clean, including dry runs.", example: "git clean -fd", conditions: { command_contains: "git clean" } },
-  { name: "Review new pull requests", activity: "tool", effect: "review", icon: GitBranch, detail: "Ask before the GitHub tool opens a pull request. Change the tool name if yours differs.", example: "mcp__github__create_pull_request", conditions: { tool_name: "mcp__github__create_pull_request" } },
-];
+const templateIcons = { ShieldCheck, FileText, GitBranch, Terminal };
+const templates = presetData.map(p => ({ ...p, icon: templateIcons[p.icon as keyof typeof templateIcons] })) as Preset[];
 const suggestedTemplates = templates.filter(t => t.suggested);
 function presetRule(t: Preset): Rule {
   return { ...newRule(t.activity, t.effect, t.name), ...structuredClone(t.conditions) };

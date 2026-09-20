@@ -65,6 +65,9 @@ def test_real_hook_waits_for_worker_then_returns(store, tmp_path, monkeypatch, v
             saved = db.get(SafetyEvaluation, job.id)
             assert saved.returned_at and saved.gate["decision"] == ("pass" if verdict == "allow" or choice == "approve" else "error" if verdict == "error" else "deny")
             assert db.scalar(select(func.count()).select_from(SafetyAttempt)) == 1
+            if verdict == "error":
+                assert saved.error == "Synthetic service failure."
+
     finally:
         if process.poll() is None:
             process.kill(); process.wait()

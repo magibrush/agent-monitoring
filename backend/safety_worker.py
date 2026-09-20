@@ -87,8 +87,8 @@ def worker_lanes(workers):
     return [True] * max(1, workers - 1) + ([False] if workers > 1 else [])
 
 
-def serve(workers=2):
-    stop = threading.Event()
+def serve(workers=2, stop=None):
+    stop = stop if stop is not None else threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
     def loop(blocking_only):
