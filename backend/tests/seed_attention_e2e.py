@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+from itertools import count
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -42,8 +43,10 @@ with SessionLocal() as db:
     state.active_id = version.id; state.paused_id = None; state.draft_id = None; state.revision += 1
     service = len(sys.argv) > 1 and sys.argv[1] == "service"
     legacy = len(sys.argv) > 1 and sys.argv[1] == "policy"
+    event_numbers = count()
     def event(kind, role, text, tool="", hook_state=None):
-        value = Event(session_id=session.id, external_id=now(), kind=kind, role=role, text=text, tool_name=tool, occurred_at=now(), payload={}, hook_state=hook_state)
+        # Windows clocks can return the same timestamp for successive inserts.
+        value = Event(session_id=session.id, external_id=f"attention-{next(event_numbers)}", kind=kind, role=role, text=text, tool_name=tool, occurred_at=now(), payload={}, hook_state=hook_state)
         db.add(value); db.flush(); return value
     goal = event("message", "user", "Update the documentation on docs-refresh. You can replace my own branch commits, but leave main alone.")
     event("message", "assistant", "I'll update the guide and push the docs-refresh branch.")

@@ -148,12 +148,25 @@ test("100 action types have ranked colors, bounded overlay and complete inspecti
     await tip.evaluate((el) => el.parentElement === document.body),
   ).toBeTruthy();
   async function checkBounds() {
-    const box = (await tip.boundingBox())!;
-    const viewport = page.viewportSize()!;
-    expect(box.x).toBeGreaterThanOrEqual(0);
-    expect(box.y).toBeGreaterThanOrEqual(0);
-    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
-    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+    // Responsive chart reflow can dismiss hover between visibility and measurement.
+    // Re-establish hover and retry the complete bounds assertion after resizing.
+    await expect(async () => {
+      for (const bar of await chart.locator(".recharts-bar-rectangle").all()) {
+        const rect = await bar.boundingBox();
+        if (rect && rect.height > 10) {
+          await bar.hover();
+          break;
+        }
+      }
+      await expect(tip).toBeVisible();
+      const box = await tip.boundingBox();
+      expect(box).not.toBeNull();
+      const viewport = page.viewportSize()!;
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+    }).toPass({ timeout: 5000 });
   }
   await checkBounds();
   await page.screenshot({ path: "../data/qa/action-tooltip-100.png" });

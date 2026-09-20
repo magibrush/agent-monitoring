@@ -20,7 +20,8 @@ test("realistic safety layout, history scope, and flat action detail", async ({ 
     return route.fulfill({ json: { ...e, snapshot: { action: JSON.stringify({ tool_input: { command: "Copy-Item ./fixtures/*.json D:/temporary-test/export/", description: "Copy synthetic configuration fixtures" }, cwd: "D:/project" }), action_truncated: false }, attempt_history: [] } });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Safety", exact: true }).click();
+  // Pending-review badges contribute to the navigation button's accessible name.
+  await page.getByRole("button", { name: /^Safety(?:\s|$)/ }).click();
     await page.getByRole("button", { name: "Action history", exact: true }).click();
   const queue = page.getByLabel("Awaiting human decisions");
   await expect(queue.getByRole("button", { name: "Approve", exact: true })).toHaveCount(2);
