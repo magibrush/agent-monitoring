@@ -99,9 +99,19 @@ def serve(workers=2):
                 log.error("Safety worker storage unavailable; retrying.")
                 worked = False
             stop.wait(0.1 if worked else 0.25)
+    def analyze_incidents():
+        # Independent capacity: retrospective summaries cannot occupy gate lanes.
+        from backend.incident_analysis import run_one as analyze_one
+        while not stop.is_set():
+            try:
+                analyze_one()
+            except Exception:
+                log.error("Incident analysis unavailable; retrying on the next cycle.")
+            stop.wait(5)
     worker_id = str(uuid4())
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    with ThreadPoolExecutor(max_workers=workers + 1) as pool:
         futures = [pool.submit(loop, lane) for lane in worker_lanes(workers)]
+        futures.append(pool.submit(analyze_incidents))
         try:
             while not stop.is_set():
                 try:

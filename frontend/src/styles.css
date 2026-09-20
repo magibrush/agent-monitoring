@@ -3255,3 +3255,48 @@ main {
 
 .attention-policy-context { padding:20px; }
 .incident-history-action summary { color:#657186; font-size:12px; cursor:pointer; margin-bottom:12px; }
+
+/* Automated incident investigation */
+.attention-workspace .safety-history-workbench { grid-template-columns:minmax(270px,.8fr) minmax(460px,1.45fr); }
+.incident-row-flags { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.incident-severity { display:inline-flex; align-items:center; gap:5px; border-radius:4px; padding:3px 7px; font-size:11px; font-weight:600; line-height:1.4; }
+.incident-severity::before { content:""; width:5px; height:5px; border-radius:50%; background:currentColor; }
+.incident-severity.critical { background:#fff0f2; color:#a02d45; }
+.incident-severity.high { background:#fff3e7; color:#986015; }
+.incident-severity.medium { background:#f4f0fb; color:#796097; }
+.incident-severity.low { background:#edf4f8; color:#496b7f; }
+.incident-suspicion { font-size:11px; color:#796097; }
+.incident-reason { color:#526176; }
+.incident-outcomes { display:flex; flex-wrap:wrap; gap:16px; padding:12px 0; border-block:1px solid #edf0f5; color:#697991; font-size:12px; }
+.incident-outcomes strong { color:#334155; font-size:14px; margin-right:3px; }
+.incident-analysis { padding:16px; background:#f8f9fc; border:1px solid #e8ecf3; border-radius:8px; margin-top:8px; }
+.incident-section-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.incident-section-heading h3 { display:flex; gap:7px; align-items:center; margin:0; }
+.incident-section-heading small { color:#8290a5; font-size:11px; }
+.incident-analysis p { font-size:13px; line-height:1.7; margin:12px 0 6px; }
+.incident-analysis h4 { font-size:12px; margin:18px 0 6px; }
+.incident-recommendations > div { border-left:2px solid #cdd6ea; padding-left:12px; margin:12px 0; }
+.incident-recommendations > small { display:block; color:#8290a5; font-size:11px; line-height:1.6; margin:14px 0; }
+.incident-citations { display:flex; flex-wrap:wrap; gap:12px; }
+.incident-citations button, .incident-citations a { font-size:11px; padding:0; }
+.incident-conversation { list-style:none; margin:0; padding:0; }
+.incident-conversation li { position:relative; margin-left:5px; padding:0 0 22px 20px; border-left:1px solid #dfe5ef; scroll-margin-top:30px; }
+.incident-conversation li::before { position:absolute; content:""; top:5px; left:-4px; width:7px; height:7px; border-radius:50%; background:#bcc7d9; box-shadow:0 0 0 4px white; }
+.incident-conversation li.flagged::before { background:#b88643; }
+.incident-conversation li.highlighted { background:#f1f4ff; border-radius:6px; }
+.incident-conversation li:last-child { border-left-color:transparent; padding-bottom:0; }
+.incident-event-heading { display:flex; align-items:center; gap:10px; font-size:12px; }
+.incident-event-heading time { color:#8290a5; margin-left:auto; font-size:11px; }
+.incident-event-text { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; line-height:1.6; color:#526176; margin:8px 0; max-height:210px; overflow:auto; }
+.incident-conversation li.flagged .incident-event-text { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:11px; background:#f7f9fc; padding:10px; border:1px solid #e8ecf3; border-radius:6px; }
+.incident-event-outcome { display:flex; gap:5px 14px; flex-wrap:wrap; color:#697991; font-size:11px; margin:8px 0; }
+.incident-conversation .text-button { font-size:11px; padding:0; }
+.incident-technical { padding:14px 0; border-top:1px solid #edf0f5; }
+.incident-technical summary { cursor:pointer; font-size:12px; color:#697991; }
+.incident-technical .attention-evidence { margin-top:12px; }
+.incident-dismiss { display:flex; gap:12px; align-items:center; border-top:1px solid #edf0f5; padding-top:12px; font-size:12px; color:#8290a5; }
+@media(max-width:1000px) { .attention-workspace .safety-history-workbench { grid-template-columns:minmax(230px,.8fr) minmax(0,1.2fr); } }
+@media(max-width:700px) { .attention-workspace .safety-history-workbench { display:flex; } .incident-analysis { padding:14px; } .incident-outcomes { gap:12px; } }
+
+.incident-event-assessment { display:flex; align-items:flex-start; gap:8px; margin:8px 0; }
+.incident-event-assessment p { margin:0; font-size:12px; line-height:1.6; color:#697991; }

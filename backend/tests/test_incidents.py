@@ -27,7 +27,7 @@ def seed(store):
         db.commit()
 
 
-def job(store, source="policy", session="session", path="D:/project/.env", at=None, status="completed", decision="deny", debug=None, retry=False, mode="blocking", risk="high"):
+def job(store, source="policy", session="session", path="D:/project/.env", at=None, status="completed", decision="deny", debug=None, retry=False, mode="blocking", risk="high", suspicious=False, severity=None):
     with store() as db:
         action = json.dumps({"tool_name": "Read", "tool_input": {"file_path": path}, "cwd": "D:/project"})
         event = Event(session_id=session, external_id=now(), kind="tool_call", role="assistant", text=action, tool_name="Read", occurred_at=at or now(), payload={}, hook_state="requested")
@@ -35,7 +35,7 @@ def job(store, source="policy", session="session", path="D:/project/.env", at=No
         row = SafetyEvaluation(event_id=event.id, input_hash=hashlib.sha256(action.encode()).hexdigest(), request_key=now(), mode=mode, status=status, created_at=at or now(),
             policy_version="test", model="test", snapshot={"action": action, "context": []}, debug_result=debug,
             rules={"findings": [{"id": "credential", "reason": "Protected file"}], "policy": {"rule_ids": ["env"], "version": 1, "reason": "Private configuration"}},
-            result={"risk": risk, "source": source, "recommendation": decision, "reason": "Private configuration read", "evidence": [], "missing_context": []},
+            result={"risk": risk, "severity": severity or risk, "suspicious": suspicious, "source": source, "recommendation": decision, "reason": "Private configuration read", "evidence": [], "missing_context": []},
             diagnostics={"retry_of": "original"} if retry else None, decision=decision)
         db.add(row); db.commit()
         return row.id, event.id
@@ -80,7 +80,8 @@ def test_immediate_concerns_exclusions_and_delayed_completion(store):
     with store() as db:
         db.get(SafetyEvaluation, waiting).status = "completed"; db.commit()
     assert scan(store) == 1
-    assert client().get(BASE).json()["total"] == 3
+    assert client().get(BASE).json()["total"] == 2
+    assert sum(r["action_count"] for r in client().get(BASE).json()["items"]) == 3
 
 
 def test_service_failures_group_across_sessions_but_not_connections(store):
@@ -234,6 +235,26 @@ def test_migration_preserves_existing_data_and_round_trips(tmp_path):
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT name FROM connections WHERE id='saved'").fetchone()[0] == "Saved source"
         assert db.execute("SELECT enabled_at FROM incident_monitor WHERE id=1").fetchone()[0]
+    # Existing linked assessments retain their importance through the analysis upgrade.
+    from backend.db import make_engine
+    from sqlalchemy.orm import sessionmaker
+    fixture_engine = make_engine(env["DATABASE_URL"])
+    with sessionmaker(fixture_engine)() as db:
+        session = ChatSession(connection_id="saved", external_id="migration", title="Saved conversation", source="test", created_at=now(), updated_at=now())
+        db.add(session); db.flush()
+        event = Event(session_id=session.id, external_id="migration", kind="tool_call", role="assistant", text="saved request", tool_name="Read", occurred_at=now(), payload={})
+        db.add(event); db.flush()
+        evaluation = SafetyEvaluation(event_id=event.id, input_hash="a" * 64, policy_version="old", model="old", rules={}, snapshot={}, status="completed", result={"recommendation": "review", "risk": "unknown"})
+        incident = Incident(connection_id="saved", title="Saved concern", grouping_reason="Legacy evidence", severity="low")
+        db.add_all([evaluation, incident]); db.flush()
+        incident_id = incident.id
+        db.add(IncidentLink(incident_id=incident.id, event_id=event.id, evaluation_id=evaluation.id, source="automatic")); db.commit()
+    fixture_engine.dispose()
+    migrate("downgrade", "0015")
+    migrate("upgrade", "head")
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT severity FROM incidents WHERE id=?", (incident_id,)).fetchone()[0] == "high"
+        assert db.execute("SELECT count(*) FROM incident_links WHERE incident_id=?", (incident_id,)).fetchone()[0] == 1
     migrate("downgrade", "0014")
     migrate("upgrade", "head")
     with sqlite3.connect(path) as db:
@@ -245,19 +266,19 @@ def test_prevented_single_is_quiet_and_dismissed_pattern_returns_in_place(store)
     seed(store)
     job(store, source="rules", mode="blocking"); scan(store)
     assert client().get(BASE).json()["total"] == 0
-    for _ in range(3): job(store, decision="review", status="awaiting_review")
+    for _ in range(3): job(store, decision="deny", status="completed")
     scan(store)
     c = client(); row = c.get(BASE).json()["items"][0]; url = BASE + "/" + row["id"]
-    assert "needed a decision" in row["headline"]
+    assert "were blocked" in row["headline"]
     assert c.patch(url, json={"revision": row["revision"], "status": "resolved", "resolution": "dismissed"}).status_code == 200
-    for _ in range(2): job(store, decision="review", status="awaiting_review", at=stamp(1))
+    for _ in range(2): job(store, decision="deny", status="completed", at=stamp(1))
     scan(store)
     assert c.get(BASE).json()["total"] == 0
-    job(store, decision="review", status="awaiting_review", at=stamp(2)); scan(store)
+    job(store, decision="deny", status="completed", at=stamp(2)); scan(store)
     returned = c.get(BASE).json()["items"][0]
     assert returned["id"] == row["id"] and returned["action_count"] == 6
     assert returned["resurfaced"] == "Shown again after 3 new matching requests."
-    job(store, decision="review", status="awaiting_review", at=stamp(30)); scan(store)
+    job(store, decision="deny", status="completed", at=stamp(30)); scan(store)
     assert c.get(BASE).json()["items"][0]["action_count"] == 7
 
 
@@ -271,7 +292,12 @@ def test_rule_bridge_focused_preview_and_observed_followup(store):
         db.add(PolicyState(id=1, active_id=1, revision=1)); db.commit()
     ids = [job(store, session="session" if i == 0 else "other-session", path=f"D:/project/readme{i}.md", decision="review", status="awaiting_review") for i in range(3)]
     scan(store)
-    c = client(); row = c.get(BASE).json()["items"][0]; url = BASE + "/" + row["id"]
+    c = client()
+    assert c.get(BASE).json()["total"] == 0  # Routine policy reviews don't create extra tasks.
+    row = c.post(BASE, json={"event_id": ids[0][1], "title": "Review file reads"}).json()
+    url = BASE + "/" + row["id"]
+    for _, event in ids[1:]: c.post(url + "/actions", json={"event_id": event})
+    row = c.get(url).json()
     assert row["rule"]["id"] == "env" and row["next_step"] == "rule"
     assert row["session_count"] == 2 and row["action_count"] == 3
     assert c.get(BASE + "?q=Review%20file%20reads").json()["total"] == 1
@@ -303,3 +329,37 @@ def test_rule_bridge_focused_preview_and_observed_followup(store):
         incident = db.get(Incident, row["id"])
         followup = incidents.followup(db, incident, row["rule"])
         assert followup["triggered"] == 0 and followup["assessed"] == 3
+
+
+def test_suspicious_allow_is_immediate_low_severity_and_receipt_is_separate(store):
+    seed(store)
+    evaluation, event = job(store, source="judge", decision="allow", suspicious=True, severity="low", risk="low")
+    scan(store)
+    c = client(); row = c.get(BASE).json()["items"][0]
+    assert row["severity"] == "low" and row["suspicious"] and row["allowed_flagged"] == 1
+    assert row["released"] == 0 and row["headline"] == "Allowed by the judge, flagged"
+    url = BASE + "/" + row["id"]
+    with store() as db:
+        before = incidents.dump(db.get(SafetyEvaluation, evaluation))
+    c.patch(url, json={"revision": row["revision"], "status": "resolved", "resolution": "dismissed"})
+    job(store, source="judge", decision="allow", suspicious=True, severity="critical", at=stamp(1)); scan(store)
+    shown = c.get(BASE).json()["items"][0]
+    assert shown["id"] == row["id"] and shown["severity"] == "critical"
+    assert "New suspicious" in shown["resurfaced"]
+    with store() as db: assert incidents.dump(db.get(SafetyEvaluation, evaluation)) == before
+    detail = c.get(url).json()
+    assert detail["timeline"]["events"] and detail["analysis"]["status"] == "unavailable"
+
+
+def test_judge_reviews_high_floor_severity_order_and_threat_categories(store):
+    seed(store)
+    low, _ = job(store, source="judge", decision="allow", suspicious=True, severity="low", risk="low")
+    high, _ = job(store, source="judge", decision="review", status="awaiting_review", severity="low", risk="low")
+    with store() as db:
+        db.get(SafetyEvaluation, low).rules = {"triage": {"signals": [{"category": "history_rewrite"}]}}
+        db.get(SafetyEvaluation, high).rules = {"triage": {"signals": [{"category": "credential_access"}]}}
+        db.commit()
+    scan(store)
+    rows = client().get(BASE).json()["items"]
+    assert len(rows) == 2 and [r["severity"] for r in rows] == ["high", "low"]
+    assert client().get(BASE + "?severity=low").json()["total"] == 1

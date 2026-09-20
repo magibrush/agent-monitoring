@@ -157,6 +157,7 @@ class Incident(Base):
     connection_id: Mapped[str] = mapped_column(ForeignKey("connections.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(200))
     kind: Mapped[str] = mapped_column(String(20), default="concern")
+    severity: Mapped[str] = mapped_column(String(12), default="medium", index=True)
     status: Mapped[str] = mapped_column(String(20), default="new", index=True)
     resolution: Mapped[str | None] = mapped_column(String(40))
     signature: Mapped[str | None] = mapped_column(String(64), index=True)
@@ -166,6 +167,24 @@ class Incident(Base):
     created_at: Mapped[str] = mapped_column(String(40), default=now)
     last_activity_at: Mapped[str] = mapped_column(String(40), default=now, index=True)
     resolved_at: Mapped[str | None] = mapped_column(String(40))
+
+
+class IncidentAnalysis(Base):
+    __tablename__ = "incident_analyses"
+    incident_id: Mapped[str] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), primary_key=True)
+    requested_revision: Mapped[int] = mapped_column(Integer, default=0)
+    analyzed_revision: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(24), default="pending")
+    evidence: Mapped[dict | None] = mapped_column(JSON)
+    result: Mapped[dict | None] = mapped_column(JSON)
+    model: Mapped[str] = mapped_column(String(100), default="claude-haiku-4-5-20251001")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    lease_token: Mapped[str | None] = mapped_column(String(36))
+    lease_until: Mapped[str | None] = mapped_column(String(40))
+    available_at: Mapped[str] = mapped_column(String(40), default=now)
+    analyzed_at: Mapped[str | None] = mapped_column(String(40))
+    error: Mapped[str | None] = mapped_column(Text)
+    usage: Mapped[dict | None] = mapped_column(JSON)
 
 
 class IncidentLink(Base):

@@ -5,7 +5,7 @@ import { Bar, ComposedChart, Cell, ReferenceArea, ResponsiveContainer, Tooltip, 
 import { api, json, type Connection, type SafetyEvaluation } from "./api";
 import { PolicyPreferences } from "./PolicyPreferences";
 import { SafetyPolicies } from "./SafetyPolicies";
-import { Incidents, IncidentActionMenu } from "./Incidents";
+import { Incidents, Severity } from "./Incidents";
 import { SafetyDebug, type DebugConfig } from "./SafetyDebug";
 import { SAFETY_SERIES } from "./Safety";
 import { HookSetup, Modal } from "./ui";
@@ -56,7 +56,7 @@ function ApprovalCard({ item }: { item: Action }) {
   }
   return <article id={`review-${e.id}`} tabIndex={-1} className="decision-card" aria-label={`Review ${item.tool_name}`}>
     <div className="decision-heading"><strong>{item.tool_name} {e.result?.source === "debug" && <small className="debug-badge">Debug</small>}</strong><span className={`decision-clock ${remaining <= 15 ? "urgent" : ""}`}><Clock3 size={14} />{remaining ? `${remaining}s left` : "Expired"}</span></div>
-    <p className="decision-session" title={item.title}>{item.title}</p>
+    <div className="incident-row-flags"><Severity level={e.result?.severity === "critical" ? "critical" : "high"} />{e.result?.suspicious && <span className="incident-suspicion">Suspicious</span>}</div><p className="decision-session" title={item.title}>{item.title}</p>
     {detail.data ? <ActionCode action={detail.data.snapshot.action} /> : <p className="safety-muted">{detail.error ? "Could not load action. Approval unavailable." : "Loading action…"}</p>}
     <Reason text={e.result?.reason || "Human decision requested."} />
     {detail.data?.snapshot.action_truncated && <p className="error">Incomplete action. Deny and request a smaller action.</p>}
@@ -64,7 +64,7 @@ function ApprovalCard({ item }: { item: Action }) {
     {error && <p className="error" role="alert">{error}</p>}
   </article>;
 }
-export function ActionDetail({ item, close, openIncident, showTimings = false }: { item: Action; close: () => void; openIncident?: (id: string) => void; showTimings?: boolean }) {
+export function ActionDetail({ item, close, showTimings = false }: { item: Action; close: () => void; openIncident?: (id: string) => void; showTimings?: boolean }) {
   const initial = item.evaluation;
   const detail = useQuery({ queryKey: ["evaluation", initial?.id], queryFn: () => api<SafetyEvaluation & Assessment>(`/safety/evaluations/${initial!.id}`), enabled: Boolean(initial) });
   const e = detail.data ?? initial, client = useQueryClient();
@@ -75,8 +75,8 @@ export function ActionDetail({ item, close, openIncident, showTimings = false }:
     catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   }
   return <section className="inspection-detail" aria-label="Action details"><div className="modal-heading"><div><h2 id="dialog-title">{item.tool_name} request</h2><p className="action-session-label" title={item.title}><span>Session</span> {item.title || "Untitled session"}</p></div><button className="icon-button" aria-label="Close action details" onClick={close}><X size={20} /></button></div><div className="safety-detail">
-    <Outcome state={currentOutcome(e, item.safety_state)} />{e?.result?.source === "debug" && <span className="debug-badge">Debug</span>}<time>{new Date(item.occurred_at).toLocaleString()}</time>
-    {openIncident && <details className="incident-history-action"><summary>More</summary><IncidentActionMenu key={item.event_id} eventId={item.event_id} tool={item.tool_name} open={openIncident} /></details>}
+    <Outcome state={currentOutcome(e, item.safety_state)} />{e?.result && <><Severity level={e.result.recommendation === "review" && e.result.severity !== "critical" ? "high" : e.result.severity || e.result.risk || "medium"} />{e.result.suspicious && <span className="incident-suspicion">Suspicious</span>}</>}{e?.result?.source === "debug" && <span className="debug-badge">Debug</span>}<time>{new Date(item.occurred_at).toLocaleString()}</time>
+
     {detail.data && e?.status !== "awaiting_review" && <ActionCode action={detail.data.snapshot.action} />}
     {detail.error && <p className="error">{detail.error.message}</p>}
     {e ? <>
@@ -159,7 +159,7 @@ export function SafetyWorkspace({ connections, refresh, notify, notifications }:
       {approvals.error ? <p className="error">{approvals.error.message}</p> : approvals.isPending ? <p className="safety-muted">Loading requests…</p> : approvals.data?.total === 0 ? <div className="decisions-clear"><CheckCircle2 size={19} />No actions waiting for approval</div> : <div className="review-grid">{approvals.data?.items.map(item => <ApprovalCard key={item.event_id} item={item} />)}</div>}
       {!!approvals.data && approvals.data.total > 20 && <div className="safety-pager"><button disabled={!reviewOffset} onClick={() => setReviewOffset(Math.max(0, reviewOffset - 20))}>Previous</button><button disabled={reviewOffset + 20 >= approvals.data.total} onClick={() => setReviewOffset(reviewOffset + 20)}>Next</button></div>}
     </section>
-    <div className="incident-view-tabs" aria-label="Safety views"><button className={section === "incidents" ? "selected" : ""} aria-pressed={section === "incidents"} onClick={() => openIncident(null)}>Needs attention{!!incidentCounts.data?.total && <span>{incidentCounts.data.total}</span>}</button><button className={section === "history" ? "selected" : ""} aria-pressed={section === "history"} onClick={openHistory}>Action history</button></div>
+    <div className="incident-view-tabs" aria-label="Safety views"><button className={section === "incidents" ? "selected" : ""} aria-pressed={section === "incidents"} onClick={() => openIncident(null)}>Incidents{!!incidentCounts.data?.total && <span>{incidentCounts.data.total}</span>}</button><button className={section === "history" ? "selected" : ""} aria-pressed={section === "history"} onClick={openHistory}>Action history</button></div>
     {section === "incidents" ? <Incidents connections={connections} selected={incident} open={openIncident} history={openHistory} reviewRule={(ruleId, incidentId) => { setPolicyContext({ ruleId, incidentId }); setPolicies(true); }} settings={() => setSettings(true)} /> : <>
     <section className="panel safety-history" aria-label="Action history"><div className="safety-history-heading"><h2>Action history</h2><div><select aria-label="Filter connection" value={connection} onChange={e => setConnection(e.target.value)}><option value="">All connections</option>{connections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select><TimeRange value={chart.zoomed && chart.data ? { ...chart.data.viewport, label: "Custom range" } : range} onChange={r => { chart.reset(); setRange(r); }} /></div></div>
       <div className="outcome-filters" aria-label="Safety outcomes in selected scope"><button aria-pressed={!outcome} onClick={() => setOutcome("")}>All <b>{metrics.data?.actions ?? 0}</b></button>{SAFETY_SERIES.map(s => <button key={s.key} aria-pressed={outcome === s.key} title={explanations[s.key]} onClick={() => setOutcome(outcome === s.key ? "" : s.key)}><i style={{ background: s.color }} />{labels[s.key]} <b>{metrics.data?.safety?.[s.key] ?? 0}</b></button>)}</div>

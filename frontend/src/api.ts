@@ -73,7 +73,7 @@ export interface SafetyEvaluation {
   error: string | null;
   rules: { policy?: { version: number; reason: string; decision: string }; trial?: { version: number; reason: string; decision: string }; decision: string; findings: { id: string; reason: string }[] };
   gate: { decision: string; policy_version: string } | null;
-  result: { recommendation: string; risk: string; reason: string; evidence: string[]; missing_context: string[]; source: string } | null;
+  result: { recommendation: string; risk: string; severity?: string; suspicious?: boolean; reason: string; evidence: string[]; missing_context: string[]; source: string } | null;
   usage: { input_tokens?: number; output_tokens?: number } | null;
 }
 export interface Metrics {

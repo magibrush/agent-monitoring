@@ -1,45 +1,58 @@
-# RFC 007: Needs attention
+# RFC 007: Automated incident investigation
 
 Implemented 20 September 2026. Extends RFC 006's operator-triage milestone.
 
-## Purpose and workflow
+## Value and workflow
 
-Help people find repeated interruptions, adjust the rule responsible, and check subsequent activity. Individual successful blocks stay in history instead of becoming another task. Live approvals remain at the top of Safety and are unaffected by inbox filters or dismissals.
+Routine decisions stay with the rules. The judge can let an action continue while flagging a concern, and Relay automatically gathers the conversation, relevant requests and recorded outcomes into an incident. The user gets an explanation and evidence-backed suggestions instead of a ticket to fill out.
 
-Needs attention uses the same compact list and inspector as action history. Each item explains the observed pattern and offers a relevant next step. A policy interruption opens the exact rule in the existing draft, or the applied policy if no draft exists. A missing rule is reported without recreating it. Existing draft edits are preserved.
+Safety keeps live approvals at the top. Incidents are ranked Critical, High, Medium, Low, then newest. The inspector leads with the concern and outcome, followed by automatic Haiku analysis, cited findings, suggested next steps, and a conversation timeline. Each assessed action shows its own severity and reason. Technical request details remain secondary. Notes, manual attachment and administrative history are no longer exposed in this flow; existing data and APIs are preserved.
 
-After saving changes, **Test affected requests** compares the draft against up to 500 of the item's latest saved requests. Results show previous recommendations and proposed policy decisions. Built-in protections retain priority. Incomplete, redacted or truncated requests are marked unavailable. No judge runs, decisions change, or requests execute. This focused check does not mark the whole draft as simulated; the existing full simulation and application flow remains available.
+## Routing and judgment
 
-After applying a changed rule, the item reports subsequent assessments on its connection, up to the latest 2,000. It counts blocking requests whose recorded winning rule still required review or denial, and states when no later assessments exist. This is an observation about later activity, not proof that a problem was fixed. Debug assessments and retrospective retries are excluded. Rule removal and policy pausing do not imply success.
+1. Built-in prohibitions retain priority, including protected credential directories and explicit root deletion.
+2. Applied custom rules handle known actions deterministically. Allow, review and deny shortcuts avoid model calls; an explicit judge rule goes to the judge.
+3. Unmatched actions get bounded threat-pattern hints for destructive commands, history rewrites, network transfers, credential access, privilege/persistence and obfuscated execution.
+4. The judge decides using the action, recorded context, policy and those hints. Unknown unmatched actions also reach the judge. A missing regex match is never an automatic allowance, and a pattern match is not proof of malicious intent. No new shell fast-approval path was added: aliases, configured helpers and compound syntax can conceal effects.
 
-Service items open the existing request timing inspector and link to protection settings. Notes, audit activity and manual attachments are optional. **Dismiss** requires no resolution form and does not alter policy or pending approvals. **Show again** restores the item. Historical resolved records remain readable.
+The judge's strict structured result includes `recommendation` (allow/review/deny), `suspicious` (boolean) and `severity` (low/medium/high/critical), plus the existing reason/evidence/context and legacy risk field. Suspicion and severity are separate from permission. Allow+suspicious+low is valid. Review and deny have a server-enforced high severity floor. Critical does not itself override the verdict. Missing or malformed new fields fail schema validation and use the existing bounded failure behavior.
 
-## Automatic grouping
+A verdict does not prove that a hook released a request. A delivered pass does not prove successful execution. The timeline labels assessment, gate receipt and execution separately; shadow recommendations never claim to have blocked an action.
 
-A separate background cycle reads up to 100 eligible assessments every two seconds, including pending human reviews. It never calls a model or participates in a blocking decision. SQLite uses a short busy timeout so correlation yields to gate writes.
+## Incident creation and grouping
 
-- A single successful block stays in action history.
-- A single high-risk deny recommendation in shadow mode opens an item, since Relay did not block that request. Execution remains unknown unless recorded elsewhere.
-- Three interruptions from the same policy rule on one connection within ten minutes open one item, including across files and sessions. The winning rule is recovered from the policy version assessed, using the same priority order as matching.
-- Other repeated denials use connection, session, finding, tool and normalized file path. Without a file target, assessed action hashes must match. Normalization is lexical; it never reads target files.
-- Three evaluation failures, capacity failures or expirations within ten minutes open a service item, grouped by connection and failure category.
-- Matching activity keeps updating an open item even after an idle gap. Three new matching requests within ten minutes bring a dismissed item back under the same ID, with an explanation. Earlier requests that complete late attach to the dismissed record without reopening it.
-- Legacy records resolved with an explicit reason retain the previous linked-recurrence behavior.
+A separate correlation cycle reads at most 100 eligible persisted assessments every two seconds. It never calls a model or participates in the live gate decision.
 
-Debug assessments and retrospective retries are excluded. The monitor starts from installation time, so old assessments are not automatically backfilled. Candidate records make correlation restart-safe; classification, links and activity commit together. Manual attachment takes precedence for that assessment. Existing saved items are preserved during this update.
+- Suspicious judge findings create an incident immediately, including allowed actions at low severity.
+- Judge reviews and deny recommendations create an incident immediately; reviews have high severity even if a legacy result says low.
+- A routine policy review does not create an additional task. Repeated deterministic denials and service failures retain the three-in-ten-minutes threshold.
+- Judge concerns group by connection, session and threat categories (or tool when no category is available). Deterministic patterns retain their existing rule/resource grouping.
+- Severity is the highest linked assessment severity. Existing records are backfilled from their saved evidence on upgrade.
+- New suspicious evidence after dismissal brings back the same incident. Earlier requests completing late attach without reopening it. Routine repeated patterns still need their threshold.
+- Debug assessments and retrospective retries are excluded. Restart-safe candidate records prevent duplicate processing. Existing historical assessments are not re-judged.
 
-## Storage and API
+Dismissal is optional and does not change a rule, approval or gate decision. Legacy saved policy investigations retain their exact-rule navigation and focused draft comparison.
 
-Migration 0015 introduced incidents, links, activity, candidates and the monitor cutoff. This refinement needs no new migration. Connection deletion cascades through its saved items in the same transaction. Source transcripts are untouched.
+## Automatic analysis
 
-`/api/safety/incidents` retains filtered listing, manual creation, notes, attachment, detachment and revision-checked status changes. Detail adds a factual summary, recorded winning rule and observed follow-up. `POST /api/safety/incidents/{id}/preview` requires the current policy revision and a saved draft. It returns a bounded comparison without mutating policy state. Local locks coordinate correlation, edits, policy comparisons and connection deletion; deployment remains single-process.
+A dedicated worker lane runs independently of the configured live gate lanes. New evidence queues an analysis after a 30-second debounce. Completed analyses have at least a 60-second cooldown; a bounded idle sweep catches later receipts and transcript changes. There are at most two attempts per evidence revision. No key means no network calls or consumed attempts. Automatic uploads require an enabled connection with protection hooks, using the existing Anthropic credential.
 
-Evidence retains its original assessment identity. Request lists and activity are paginated, and links open Explorer at the source request. No inbox operation approves, retries or replaces an assessment. Notes and evidence remain local plaintext under the existing storage model.
+The analysis model is `claude-haiku-4-5-20251001`. Its evidence bundle is bounded to 20 linked requests, 40 total records and 40,000 characters, with redaction and per-record excerpts. Flagged actions are budgeted before neighboring context. Original truncation is disclosed. Real event IDs and session identities accompany user intent, messages, tool requests and results; unverified live-context text is not assigned invented IDs.
 
-## Validation and rollout
+The analyst gets no executable tools. All transcript content is explicitly untrusted. Structured findings and recommendations must cite event IDs present in the supplied bundle; unknown references and oversized outputs are rejected. Suggestions never execute, change rules or approve requests. Model output is labeled Haiku analysis and is not a claim of verified compromise or remediation.
 
-Backend tests cover quiet successful blocks, grouping across sessions, thresholds, time windows, restart deduplication, exclusions, late assessments, dismissal and recurrence, unchanged approvals, manual corrections, pagination, connection deletion, draft revision checks, focused comparisons and observed follow-up. Browser tests exercise both the optional manual workflow and the rule-review, comparison, apply and return path on desktop and mobile.
+Claims happen in short database transactions. The database is closed during the model call, which runs in a separate process with a 25-second wall-clock budget and bounded response size. Publication checks lease, revision, current evidence and source eligibility. Deleted incidents cannot be recreated by a late result. New evidence hides stale advice; failed, unavailable and missing-key states show the recorded timeline without claiming analysis is in progress.
 
-Build the frontend and restart the API after active blocking requests finish. Existing migration 0015 and worker contracts are unchanged. Previously installed instances retain their saved items; new correlation uses the quieter rules.
+## Storage and rollout
 
-Validation completed: 199 backend tests passed, followed by the 14 incident tests after the final search change. All 33 existing browser scenarios passed; the final focused run passed four scenarios including the new service diagnostics path (34 distinct scenarios in total). TypeScript and the production build pass; the existing bundle-size warning remains. The local API was restarted after a database backup and a check for active blocking requests. Health, worker heartbeat and the summary endpoint were verified.
+Migration 0016 adds incident severity and `incident_analyses` to the existing 0015 schema. Analysis rows cascade with incidents and connection deletion. The migration derives existing severity from linked assessments, without model calls. Existing saved incidents without analysis remain readable; new linked evidence queues analysis when eligible.
+
+Back up the local database, allow blocking requests to finish, migrate to head, rebuild the frontend and restart both API and safety worker. The external gate contract is unchanged. Source transcripts are untouched.
+
+## Validation
+
+Architecture/design/security review approved after corrections to category grouping, historical severity, evidence retention, stale refresh and outcome wording. Backend tests cover threat routing, explicit policy precedence, strict verdicts, suspicious allowances, severity ranking, correlation, migration round trips, redaction, citations, leases, stale/deleted publication, cooldowns and late receipts. Browser fixtures cover an allowed-but-flagged force push that Git subsequently rejected, cited advice, conversation navigation, dismissal, per-action severity, existing policy comparisons, diagnostics and unavailable analysis.
+
+Browser analysis text uses deterministic test fixtures; it is not evidence of live model judgment quality. Model quality and calibration need observation on real, authorized traffic separately from integration tests.
+
+Final validation: 246 backend tests passed, followed by all 16 incident tests with the historical-severity migration case. All 35 browser scenarios passed across the full run and focused rerun after updating the per-action-severity assertion. Production build and TypeScript pass. UI/UX review approved fresh desktop, mobile and missing-key captures after the requested refinements. Local migration 0016, API health and worker startup were verified after a database backup. Existing saved evidence was not submitted to the model during rollout; future incidents use the installed automation.

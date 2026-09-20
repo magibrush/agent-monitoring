@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import re
 
-POLICY_VERSION = "relay-v3-human-review"
+POLICY_VERSION = "relay-v4-severity"
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = "claude-haiku-4-5-20251001"
 POLICY = """Protect credentials and monitoring configuration. Flag possible data

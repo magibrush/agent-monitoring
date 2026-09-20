@@ -10,7 +10,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import case, func, or_, select, text
 
 from backend.db import (ChatSession, Connection, Event, Incident, IncidentActivity,
     IncidentCandidate, IncidentLink, IncidentMonitor, SafetyEvaluation, PolicyVersion, PolicyState, PolicyChange, now)
@@ -55,14 +55,28 @@ def latest_job(db, event):
         .order_by((SafetyEvaluation.mode == "blocking").desc(), SafetyEvaluation.created_at.desc(), SafetyEvaluation.id.desc()).limit(1))
 
 
+SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+
+
+def severity_of(job):
+    result = (job.result or {}) if job else {}
+    severity = result.get("severity", result.get("risk", "medium"))
+    if severity not in SEVERITY_RANK: severity = "medium"
+    if result.get("recommendation") in {"review", "deny"} and SEVERITY_RANK[severity] < 2:
+        severity = "high"
+    return severity
+
+
 def classify(job, event, session, db=None):
     result, rules = job.result or {}, job.rules or {}
     if job.debug_result or job.model == "debug" or result.get("source") == "debug" or (job.diagnostics or {}).get("retry_of"):
         return None
     service = job.status in {"failed", "skipped"} or job.decision in {"error", "expired"}
     denied = job.decision == "deny" or result.get("recommendation") == "deny"
-    policy_review = result.get("source") == "policy" and result.get("recommendation") == "review" and job.mode == "blocking"
-    if not service and not denied and not policy_review:
+    source = result.get("source", "judge")
+    suspicious = source == "judge" and result.get("suspicious") is True
+    judge_review = source == "judge" and result.get("recommendation") == "review"
+    if not service and not denied and not suspicious and not judge_review:
         return None
     try:
         action = json.loads((job.snapshot or {}).get("action", "{}"))
@@ -88,6 +102,12 @@ def classify(job, event, session, db=None):
         key = [session.connection_id, "service", family]
         title = {"deadline": "Requests timing out", "capacity": "Review capacity reached", "evaluation": "Evaluations failing"}[family]
         reason = "Opened after three requests on this connection had the same kind of failure within ten minutes. Later matching failures update this item."
+    elif source == "judge" and (suspicious or judge_review or denied):
+        triage = rules.get("triage") or {}
+        categories = sorted(str(f.get("category", "")) for f in triage.get("signals", []) if isinstance(f, dict))
+        key = [session.connection_id, session.id, "judge-concern", categories or [event.tool_name]]
+        title = f"{event.tool_name or 'Action'} flagged for attention"
+        reason = "Grouped from the same conversation and the same kind of judge concern. The timeline includes the surrounding task and recorded outcomes."
     elif source == "policy":
         winner = recorded_rule(db, job) if db is not None else None
         key = [session.connection_id, "policy", winner["id"] if winner else sorted(signal)]
@@ -99,10 +119,11 @@ def classify(job, event, session, db=None):
         title = f"Repeated requests for {target}"
         reason = "Grouped because requests came from the same session, used the same tool and finding, and targeted the same file within ten minutes." if resource else "Grouped because requests came from the same session with the same assessed action and finding within ten minutes."
     return {"signature": hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest(), "title": title[:200],
-        "kind": "service" if service else "concern", "reason": reason,
-        # A single prevented request isn't another task. Surface a single serious
-        # advisory finding only when Relay did not block it; execution is unknown.
-        "immediate": not service and source != "policy" and job.mode == "shadow" and result.get("risk") == "high" and result.get("recommendation") == "deny"}
+        "kind": "service" if service else "concern", "reason": reason, "severity": severity_of(job),
+        "suspicious": suspicious,
+        "immediate": not service and (suspicious or judge_review or (source == "judge" and denied)
+            or (job.mode == "shadow" and result.get("risk") == "high" and denied))}
+
 
 
 def link_action(db, incident, event, job, source):
@@ -112,6 +133,11 @@ def link_action(db, incident, event, job, source):
     db.add(IncidentLink(incident_id=incident.id, event_id=event.id, evaluation_id=job.id if job else None, source=source))
     incident.last_activity_at = max(incident.last_activity_at, job.created_at if job else event.occurred_at)
     incident.revision += 1
+    evidence_severity = severity_of(job)
+    if SEVERITY_RANK[evidence_severity] > SEVERITY_RANK.get(incident.severity, 0): incident.severity = evidence_severity
+    db.flush()
+    from backend.incident_analysis import queue_analysis
+    queue_analysis(db, incident)
     log(db, incident, "attached", f"Added {event.tool_name or 'tool'} request (action {event.id}).", "Relay" if source == "automatic" else "local operator")
     if source == "manual" and job:
         candidate = db.get(IncidentCandidate, job.id)
@@ -152,18 +178,18 @@ def correlate(db, limit=100):
             eligible = eligible.where(IncidentCandidate.occurred_at > previous.resolved_at)
         candidates = list(db.scalars(eligible))
         active = previous if previous and previous.status != "resolved" else None
-        if not active and len(candidates) < 3 and (not info["immediate"] or (previous and previous.resolution == "dismissed")): continue
+        if not active and len(candidates) < 3 and not info["immediate"]: continue
         if not active and previous and previous.resolution == "dismissed":
             active = previous
             active.status, active.resolution, active.resolved_at = "new", None, None
             active.revision += 1
-            log(db, active, "resurfaced", f"Shown again after {len(candidates)} new matching requests.", "Relay")
+            log(db, active, "resurfaced", "New suspicious activity was recorded after dismissal." if info["immediate"] else f"Shown again after {len(candidates)} new matching requests.", "Relay")
         if not active:
-            active = Incident(connection_id=session.connection_id, title=info["title"], kind=info["kind"], signature=info["signature"],
+            active = Incident(connection_id=session.connection_id, title=info["title"], kind=info["kind"], severity=info["severity"], signature=info["signature"],
                 grouping_reason=info["reason"], previous_id=previous.id if previous else None,
                 created_at=job.created_at, last_activity_at=job.created_at)
             db.add(active); db.flush()
-            log(db, active, "created", "A high-risk concern was recorded in shadow mode; Relay did not block this request." if info["immediate"] else "Opened after three matching requests within ten minutes.", "Relay")
+            log(db, active, "created", "A judge concern was recorded. See the verdict and gate receipt for its outcome." if info["immediate"] else "Opened after three matching requests within ten minutes.", "Relay")
         for c in candidates:
             evidence = db.get(SafetyEvaluation, c.evaluation_id)
             link_action(db, active, db.get(Event, evidence.event_id), evidence, "automatic")
@@ -202,7 +228,7 @@ def recorded_rule(db, job, versions=None):
 
 
 def insight(db, row):
-    fields = ("id", "mode", "decision", "status", "result", "rules", "review_ready_at", "human_decision", "gate", "deadline")
+    fields = ("id", "mode", "decision", "status", "result", "rules", "review_ready_at", "human_decision", "gate", "deadline", "returned_at")
     query = select(*[getattr(SafetyEvaluation, key).label(key) for key in fields], Event.id.label("event_id"), ChatSession.title.label("session_title")).select_from(IncidentLink).join(Event, Event.id == IncidentLink.event_id).join(ChatSession, ChatSession.id == Event.session_id).outerjoin(SafetyEvaluation, SafetyEvaluation.id == IncidentLink.evaluation_id).where(IncidentLink.incident_id == row.id)
     # Exact totals use SQL; explanations inspect a bounded sample, disclosed below.
     total = db.scalar(select(func.count()).select_from(query.subquery()))
@@ -227,6 +253,14 @@ def insight(db, row):
         if total == 1 and first_job and first_job.mode == "shadow":
             headline = "A concern was flagged without blocking"
             explanation = "The assessment flagged a high-risk request in shadow mode. Check the recorded outcome and context."
+    flagged = [j for j, _, _ in rows if j and (j.result or {}).get("suspicious") is True]
+    judge_concerns = [j for j, _, _ in rows if j and (j.result or {}).get("source", "judge") == "judge" and (j.result or {}).get("recommendation") in {"review", "deny"}]
+    if flagged or judge_concerns:
+        strongest = max(flagged or judge_concerns, key=lambda j: SEVERITY_RANK[severity_of(j)])
+        explanation = (strongest.result or {}).get("reason") or "The judge flagged a concern in this conversation."
+        headline = "Allowed by the judge, flagged" if flagged and all((j.result or {}).get("recommendation") == "allow" for j in flagged) and not judge_concerns else "The judge flagged a concern"
+        if judge_concerns and not flagged:
+            headline = "The judge requested review" if any((j.result or {}).get("recommendation") == "review" for j in judge_concerns) else "The judge recommended blocking"
     if same_rule:
         rule = {"id": winner["id"], "name": winner["name"], "version": first_job.rules["policy"]["version"], "recorded": winner}
         next_step = "rule"
@@ -247,7 +281,9 @@ def insight(db, row):
     latest_activity = db.scalar(select(IncidentActivity).where(IncidentActivity.incident_id == row.id, IncidentActivity.kind == "resurfaced").order_by(IncidentActivity.id.desc()).limit(1))
     return {"headline": headline, "explanation": explanation, "next_step": next_step, "rule": rule,
         "session_count": sessions, "session_title": rows[0][2].title if sessions == 1 and rows else None,
-        "sampled": len(rows), "blocked": blocked, "reviewed": reviewed, "resurfaced": latest_activity.text if latest_activity else None}
+        "sampled": len(rows), "blocked": blocked, "reviewed": reviewed, "suspicious": bool(flagged),
+        "allowed_flagged": sum((j.result or {}).get("recommendation") == "allow" for j in flagged),
+        "released": sum(bool(j and j.returned_at and (j.gate or {}).get("decision") == "pass") for j, _, _ in rows), "resurfaced": latest_activity.text if latest_activity else None}
 
 
 def followup(db, row, rule):
@@ -291,16 +327,17 @@ def followup(db, row, rule):
 
 @router.get("")
 def listing(status: Literal["open", "new", "investigating", "resolved", "all"] = "open", connection: str = "", q: str = "",
-            offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
+            offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100), severity: Literal["", "low", "medium", "high", "critical"] = ""):
     with store() as db:
         base = select(Incident).join(Connection).where(Connection.provider.in_(PROVIDERS))
         if connection: base = base.where(Incident.connection_id == connection)
+        if severity: base = base.where(Incident.severity == severity)
         if q.strip(): base = base.where(Incident.title.icontains(q.strip(), autoescape=True))
         counts = dict(db.execute(select(Incident.status, func.count()).where(Incident.id.in_(base.with_only_columns(Incident.id))).group_by(Incident.status)).all())
         if status == "open": base = base.where(Incident.status != "resolved")
         elif status != "all": base = base.where(Incident.status == status)
         total = db.scalar(select(func.count()).select_from(base.subquery()))
-        rows = db.scalars(base.order_by(Incident.last_activity_at.desc(), Incident.id).offset(offset).limit(limit)).all()
+        rows = db.scalars(base.order_by(case(SEVERITY_RANK, value=Incident.severity, else_=1).desc(), Incident.last_activity_at.desc(), Incident.id).offset(offset).limit(limit)).all()
         return {"items": [summary(db, r) for r in rows], "total": total, "counts": counts}
 
 
@@ -361,7 +398,8 @@ def detail(id_: str, offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, 
         nearby = db.scalars(select(Incident).where(Incident.id.in_(nearby_ids), Incident.connection_id == row.connection_id,
             Incident.id.not_in([id_, *[r.id for r in related]])).order_by(Incident.last_activity_at.desc()).limit(5)).all()
         metadata = summary(db, row)
-        return {**metadata, "followup": followup(db, row, metadata["rule"]), "actions": items,
+        from backend.incident_analysis import evidence_bundle, public_analysis
+        return {**metadata, "timeline": evidence_bundle(db, row), "analysis": public_analysis(db, row), "followup": followup(db, row, metadata["rule"]), "actions": items,
             "activity": [dump(a) for a in db.scalars(activity.order_by(IncidentActivity.id.desc()).offset(activity_offset).limit(30))],
             "activity_total": db.scalar(select(func.count()).select_from(activity.subquery())),
             "related": [summary(db, r) for r in related], "nearby": [summary(db, r) for r in nearby]}

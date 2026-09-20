@@ -144,7 +144,7 @@ def test_legacy_list_type_failure_is_identifiable(monkeypatch):
     from types import SimpleNamespace
     import io
     response = {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "submit_verdict", "input": {
-        "recommendation": "allow", "risk": "low", "reason": "Routine read", "evidence": "Not an array", "missing_context": "None"}}]}
+        "recommendation": "allow", "risk": "low", "suspicious": False, "severity": "low", "reason": "Routine read", "evidence": "Not an array", "missing_context": "None"}}]}
     class Opener:
         def open(self, *_args, **_kwargs):
             return io.BytesIO(json.dumps(response).encode())

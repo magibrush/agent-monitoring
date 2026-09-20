@@ -134,7 +134,7 @@ def test_redaction_and_snapshot_limits(store, tmp_path):
 
 
 def test_judge_validates_response_and_request(monkeypatch):
-    verdict = {"recommendation": "allow", "risk": "low", "reason": "Read operation", "evidence": [], "missing_context": []}
+    verdict = {"recommendation": "allow", "risk": "low", "suspicious": False, "severity": "low", "reason": "Read operation", "evidence": [], "missing_context": []}
     response = {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "submit_verdict", "input": verdict}], "usage": {"input_tokens": 15, "output_tokens": 10}}
     class Opener:
         def open(self, request, timeout):

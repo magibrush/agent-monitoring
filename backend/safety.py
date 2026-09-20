@@ -89,7 +89,8 @@ def enqueue(db, event, payload, gate=None, request=None):
                 policy_version=f"{POLICY_VERSION}:p{policy_match['version']}", model="policy",
                 rules=rules, gate=gate, status="awaiting_review" if awaiting else "completed",
                 snapshot={"action": safe_action, "action_truncated": False, "context": [], "context_limitations": "Deterministic policy; no model context collected."},
-                result={"recommendation": choice, "risk": "unknown" if choice == "review" else "high" if choice == "deny" else "low", "reason": policy_match["reason"],
+                result={"recommendation": choice, "risk": "unknown" if choice == "review" else "high" if choice == "deny" else "low", "suspicious": False,
+                        "severity": "high" if choice in {"review", "deny"} else "low", "reason": policy_match["reason"],
                         "evidence": [f"Policy version {policy_match['version']}"], "missing_context": [], "source": "policy"},
                 admitted_at=stamp, rules_ms=rules_ms, completed_at=stamp, review_ready_at=stamp if awaiting else None,
                 decision=None if not request or awaiting else "pass" if choice == "allow" else "deny",
@@ -108,6 +109,11 @@ def enqueue(db, event, payload, gate=None, request=None):
             return job
         rules["decision"] = "review"
         rules["policy"] = {**policy_match, "decision": "none", "reason": "Action is incomplete; judge required."}
+    if not built_in_deny:
+        from backend.threats import triage
+        rules["triage"] = triage(payload)
+        if rules.get("policy", {}).get("decision") == "judge":
+            rules["triage"]["reason"] = "The applied rule requires a judge assessment."
     # Context is bounded and frozen at intake; later transcript backfill must not
     # silently change evidence underlying a decision.
     context = list(db.scalars(select(Event).where(Event.session_id == event.session_id,
@@ -140,7 +146,7 @@ def enqueue(db, event, payload, gate=None, request=None):
         model="debug" if debug_result else MODEL, debug_result=debug_result,
         snapshot=snapshot, rules=rules, gate=gate, status=status,
         admitted_at=now(), rules_ms=rules_ms,
-        result={"recommendation": "deny", "risk": "high", "reason": "Explicit policy prohibition.",
+        result={"recommendation": "deny", "risk": "high", "suspicious": False, "severity": "high", "reason": "Explicit policy prohibition.",
                 "evidence": [f["reason"] for f in rules["findings"]], "missing_context": [], "source": "rules"} if status == "completed" else None,
         error="Queue capacity reached; this action was not evaluated." if status == "skipped" else None,
         completed_at=now() if status in {"completed", "skipped"} else None)
@@ -200,6 +206,13 @@ def claim(factory, blocking_only=False, debug_only=False):
 
 
 def finish(factory, job, *, result=None, error=None, retryable=False, latency_ms=0, usage=None, diagnostics=None):
+    # Keep the floor even for debug verdicts and alternate in-process evaluators.
+    if result:
+        result = dict(result)
+        result.setdefault("suspicious", False)
+        result.setdefault("severity", result.get("risk") if result.get("risk") in {"low", "medium", "high", "critical"} else "medium")
+        if result.get("recommendation") in {"review", "deny"} and result["severity"] in {"low", "medium"}:
+            result["severity"] = "high"
     retry = error and retryable and job.attempts < MAX_ATTEMPTS
     blocking = job.mode == "blocking"
     if blocking:
