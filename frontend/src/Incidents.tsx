@@ -7,6 +7,8 @@ import {
   FolderSearch,
   Sparkles,
   ArrowDown,
+  Archive,
+  RotateCcw,
 } from "lucide-react";
 import { api, json, type Connection } from "./api";
 import { ActionDetail, currentOutcome, type Action } from "./SafetyView";
@@ -129,6 +131,29 @@ export function Incidents(props: AttentionProps) {
     [connection, setConnection] = useState(""),
     [search, setSearch] = useState(""),
     [offset, setOffset] = useState(0);
+  const client = useQueryClient();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  async function dismiss(row: Incident) {
+    setBusyId(row.id);
+    setError("");
+    try {
+      await api(
+        `/safety/incidents/${row.id}`,
+        json("PATCH", {
+          revision: row.revision,
+          status: row.status === "resolved" ? "new" : "resolved",
+          resolution: row.status === "resolved" ? null : "dismissed",
+        }),
+      );
+      if (props.selected === row.id) props.open(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      await client.invalidateQueries({ queryKey: ["incidents"] });
+      setBusyId(null);
+    }
+  }
   const params = new URLSearchParams({
     status,
     severity,
@@ -203,6 +228,11 @@ export function Incidents(props: AttentionProps) {
           {rows.error.message}
         </p>
       )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
       <div className="safety-history-workbench">
         <div className="safety-records panel attention-list">
           {rows.error ? null : rows.isPending ? (
@@ -226,36 +256,54 @@ export function Incidents(props: AttentionProps) {
             </div>
           ) : (
             rows.data.items.map((row) => (
-              <button
-                key={row.id}
-                className="safety-action-row attention-row"
-                aria-pressed={props.selected === row.id}
-                onClick={() => props.open(row.id)}
-              >
-                <span className="incident-row-flags">
-                  <Severity level={row.severity} />
-                  {row.suspicious && (
-                    <span className="incident-suspicion">Suspicious</span>
+              <div className="incident-list-card" key={row.id}>
+                <button
+                  className="safety-action-row attention-row"
+                  aria-pressed={props.selected === row.id}
+                  onClick={() => props.open(row.id)}
+                >
+                  <span className="incident-row-flags">
+                    <Severity level={row.severity} />
+                    {row.suspicious && (
+                      <span className="incident-suspicion">Suspicious</span>
+                    )}
+                  </span>
+                  <span className="attention-row-title">{row.headline}</span>
+                  <span className="attention-row-copy">{row.explanation}</span>
+                  <span className="attention-meta">
+                    {row.connection_name} · {row.action_count}{" "}
+                    {row.action_count === 1 ? "request" : "requests"} ·{" "}
+                    {row.session_count === 1
+                      ? row.session_title
+                      : `${row.session_count} sessions`}
+                  </span>
+                  <span className="attention-meta">
+                    {row.status === "resolved"
+                      ? "Dismissed / resolved · "
+                      : row.resurfaced
+                        ? "New activity · "
+                        : ""}
+                    {date(row.last_activity_at)}
+                  </span>
+                </button>
+                <button
+                  className="text-button incident-list-dismiss"
+                  disabled={busyId !== null}
+                  onClick={() => void dismiss(row)}
+                  title="Dismissed incidents keep their evidence. New flagged activity can bring them back."
+                >
+                  {row.status === "resolved" ? (
+                    <RotateCcw size={14} />
+                  ) : (
+                    <Archive size={14} />
                   )}
-                </span>
-                <span className="attention-row-title">{row.headline}</span>
-                <span className="attention-row-copy">{row.explanation}</span>
-                <span className="attention-meta">
-                  {row.connection_name} · {row.action_count}{" "}
-                  {row.action_count === 1 ? "request" : "requests"} ·{" "}
-                  {row.session_count === 1
-                    ? row.session_title
-                    : `${row.session_count} sessions`}
-                </span>
-                <span className="attention-meta">
-                  {row.status === "resolved"
-                    ? "Dismissed / resolved · "
-                    : row.resurfaced
-                      ? "New activity · "
-                      : ""}
-                  {date(row.last_activity_at)}
-                </span>
-              </button>
+                  {busyId === row.id
+                    ? "Saving…"
+                    : row.status === "resolved"
+                      ? "Show again"
+                      : "Dismiss incident"}
+                </button>
+              </div>
             ))
           )}
           {!!rows.data && rows.data.total > 20 && (
@@ -338,9 +386,6 @@ function AttentionDetail({
   const [offset, setOffset] = useState(0),
     [selected, setSelected] = useState<number | null>(null),
     [highlight, setHighlight] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
-  const client = useQueryClient();
   const query = useQuery({
     queryKey: ["incidents", id, offset],
     queryFn: () => api<Detail>(`/safety/incidents/${id}?offset=${offset}`),
@@ -354,26 +399,6 @@ function AttentionDetail({
     if (matchMedia("(max-width: 700px)").matches)
       heading.current?.scrollIntoView({ block: "center" });
   }, [!!row]);
-  async function dismiss() {
-    if (!row) return;
-    setBusy(true);
-    setError("");
-    try {
-      await api(
-        `/safety/incidents/${id}`,
-        json("PATCH", {
-          revision: row.revision,
-          status: row.status === "resolved" ? "new" : "resolved",
-          resolution: row.status === "resolved" ? null : "dismissed",
-        }),
-      );
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      await client.invalidateQueries({ queryKey: ["incidents"] });
-      setBusy(false);
-    }
-  }
   function citations(ids: number[]) {
     return (
       <span className="incident-citations">
@@ -429,6 +454,117 @@ function AttentionDetail({
               ? "Automatic analysis is queued. You can inspect the evidence now."
               : analysis?.error ||
                 "Analysis has not run for this incident yet.";
+  const citedIds = new Set(
+    [...(ready?.findings ?? []), ...(ready?.recommendations ?? [])].flatMap(
+      (point) => point.evidence_ids,
+    ),
+  );
+  const timelineParts: { context: boolean; events: Evidence[] }[] = [];
+  for (const event of row?.timeline.events ?? []) {
+    const context = !event.flagged && !citedIds.has(event.event_id);
+    const previous = timelineParts[timelineParts.length - 1];
+    if (context && previous?.context) previous.events.push(event);
+    else timelineParts.push({ context, events: [event] });
+  }
+  function renderEvent(event: Evidence) {
+    return (
+      <li
+        key={event.event_id}
+        id={`incident-event-${event.event_id}`}
+        tabIndex={-1}
+        className={`${event.flagged ? "flagged" : ""} ${highlight === event.event_id ? "highlighted" : ""}`}
+      >
+        <div className="incident-event-heading">
+          <strong>
+            {event.kind === "tool_call"
+              ? "Tool request"
+              : event.kind === "tool_result"
+                ? "Tool result"
+                : event.role === "user"
+                  ? "User asked"
+                  : "Agent said"}
+          </strong>
+          {event.flagged && <span className="incident-suspicion">Flagged</span>}
+          <time>{new Date(event.occurred_at).toLocaleTimeString()}</time>
+        </div>
+        {row!.session_count > 1 && <small>{event.session_title}</small>}
+        <pre className="incident-event-text">{evidenceText(event)}</pre>
+        {event.truncated && (
+          <small className="attention-meta">
+            Excerpt · open the conversation for more
+          </small>
+        )}
+        {event.assessment && (
+          <div className="incident-event-assessment">
+            <Severity
+              level={
+                event.assessment.recommendation === "review" ||
+                event.assessment.recommendation === "deny"
+                  ? event.assessment.severity === "critical"
+                    ? "critical"
+                    : "high"
+                  : event.assessment.severity ||
+                    event.assessment.risk ||
+                    "medium"
+              }
+            />
+            <p>{event.assessment.reason}</p>
+          </div>
+        )}
+        {event.assessment && (
+          <div className="incident-event-outcome">
+            <span>
+              {event.assessment.source === "policy"
+                ? "Policy"
+                : event.assessment.source === "rules"
+                  ? "Built-in rules"
+                  : "Judge"}
+              :{" "}
+              {event.assessment.recommendation === "allow"
+                ? "allow"
+                : event.assessment.recommendation === "review"
+                  ? "review requested"
+                  : event.assessment.recommendation === "deny"
+                    ? "block recommended"
+                    : "no verdict"}
+              {event.assessment.suspicious ? ", flagged" : ""}
+            </span>
+            <span>
+              {event.gate?.mode === "shadow"
+                ? "Shadow assessment · did not hold this request"
+                : event.gate?.returned_at &&
+                    event.gate.receipt_decision === "pass"
+                  ? "Release confirmed"
+                  : event.gate?.returned_at &&
+                      event.gate.receipt_decision === "deny"
+                    ? "Block confirmed"
+                    : event.gate?.status === "awaiting_review"
+                      ? "Waiting for approval"
+                      : "No release receipt"}
+            </span>
+            <span>
+              Execution:{" "}
+              {(
+                {
+                  succeeded: "succeeded",
+                  failed: "failed",
+                  completed: "completed",
+                  requested: "not confirmed",
+                } as Record<string, string>
+              )[event.execution?.hook_state || ""] || "not confirmed"}
+            </span>
+          </div>
+        )}
+        <a
+          className="text-button"
+          href={`#explorer?session=${encodeURIComponent(event.session_id)}&event=${event.event_id}`}
+        >
+          Open in conversation
+          <ArrowUpRight size={12} />
+        </a>
+      </li>
+    );
+  }
   return (
     <section
       className="attention-detail inspection-detail"
@@ -497,12 +633,14 @@ function AttentionDetail({
                 {ready.findings.length > 0 && (
                   <div className="incident-findings">
                     <h4>Why it matters</h4>
-                    {ready.findings.map((finding, i) => (
-                      <div key={i}>
-                        <p>{finding.text}</p>
-                        {citations(finding.evidence_ids)}
-                      </div>
-                    ))}
+                    <ol className="incident-finding-list">
+                      {ready.findings.map((finding, i) => (
+                        <li key={i}>
+                          <p>{finding.text}</p>
+                          {citations(finding.evidence_ids)}
+                        </li>
+                      ))}
+                    </ol>
                   </div>
                 )}
                 {ready.recommendations.length > 0 && (
@@ -576,111 +714,32 @@ function AttentionDetail({
             </small>
           </div>
           <p className="safety-muted">
-            The user’s request, the agent’s actions, and the outcomes recorded
-            around the concern.
+            Flagged requests and cited evidence stay visible. Expand surrounding
+            records for the rest of the conversation.
           </p>
           <ol className="incident-conversation">
-            {row.timeline.events.map((event) => (
-              <li
-                key={event.event_id}
-                id={`incident-event-${event.event_id}`}
-                tabIndex={-1}
-                className={`${event.flagged ? "flagged" : ""} ${highlight === event.event_id ? "highlighted" : ""}`}
-              >
-                <div className="incident-event-heading">
-                  <strong>
-                    {event.kind === "tool_call"
-                      ? "Tool request"
-                      : event.kind === "tool_result"
-                        ? "Tool result"
-                        : event.role === "user"
-                          ? "User asked"
-                          : "Agent said"}
-                  </strong>
-                  {event.flagged && (
-                    <span className="incident-suspicion">Flagged</span>
-                  )}
-                  <time>
-                    {new Date(event.occurred_at).toLocaleTimeString()}
-                  </time>
-                </div>
-                {row.session_count > 1 && <small>{event.session_title}</small>}
-                <pre className="incident-event-text">{evidenceText(event)}</pre>
-                {event.truncated && (
-                  <small className="attention-meta">
-                    Excerpt · open the conversation for more
-                  </small>
-                )}
-                {event.assessment && (
-                  <div className="incident-event-assessment">
-                    <Severity
-                      level={
-                        event.assessment.recommendation === "review" ||
-                        event.assessment.recommendation === "deny"
-                          ? event.assessment.severity === "critical"
-                            ? "critical"
-                            : "high"
-                          : event.assessment.severity ||
-                            event.assessment.risk ||
-                            "medium"
-                      }
-                    />
-                    <p>{event.assessment.reason}</p>
-                  </div>
-                )}
-                {event.assessment && (
-                  <div className="incident-event-outcome">
-                    <span>
-                      {event.assessment.source === "policy"
-                        ? "Policy"
-                        : event.assessment.source === "rules"
-                          ? "Built-in rules"
-                          : "Judge"}
-                      :{" "}
-                      {event.assessment.recommendation === "allow"
-                        ? "allow"
-                        : event.assessment.recommendation === "review"
-                          ? "review requested"
-                          : event.assessment.recommendation === "deny"
-                            ? "block recommended"
-                            : "no verdict"}
-                      {event.assessment.suspicious ? ", flagged" : ""}
-                    </span>
-                    <span>
-                      {event.gate?.mode === "shadow"
-                        ? "Shadow assessment · did not hold this request"
-                        : event.gate?.returned_at &&
-                            event.gate.receipt_decision === "pass"
-                          ? "Release confirmed"
-                          : event.gate?.returned_at &&
-                              event.gate.receipt_decision === "deny"
-                            ? "Block confirmed"
-                            : event.gate?.status === "awaiting_review"
-                              ? "Waiting for approval"
-                              : "No release receipt"}
-                    </span>
-                    <span>
-                      Execution:{" "}
-                      {(
-                        {
-                          succeeded: "succeeded",
-                          failed: "failed",
-                          completed: "completed",
-                          requested: "not confirmed",
-                        } as Record<string, string>
-                      )[event.execution?.hook_state || ""] || "not confirmed"}
-                    </span>
-                  </div>
-                )}
-                <a
-                  className="text-button"
-                  href={`#explorer?session=${encodeURIComponent(event.session_id)}&event=${event.event_id}`}
+            {timelineParts.map((part) =>
+              part.context ? (
+                <li
+                  className="incident-context"
+                  key={`context-${part.events[0].event_id}`}
                 >
-                  Open in conversation
-                  <ArrowUpRight size={12} />
-                </a>
-              </li>
-            ))}
+                  <details>
+                    <summary>
+                      <span className="context-show">Show</span>
+                      <span className="context-hide">Hide</span>{" "}
+                      {part.events.length} surrounding{" "}
+                      {part.events.length === 1 ? "record" : "records"}
+                    </summary>
+                    <ol className="incident-conversation">
+                      {part.events.map(renderEvent)}
+                    </ol>
+                  </details>
+                </li>
+              ) : (
+                renderEvent(part.events[0])
+              ),
+            )}
           </ol>
           {row.timeline.truncated && (
             <p className="safety-muted">
@@ -751,25 +810,6 @@ function AttentionDetail({
               </div>
             )}
           </details>
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="incident-dismiss">
-            <button
-              className="text-button"
-              disabled={busy}
-              onClick={() => void dismiss()}
-            >
-              {row.status === "resolved" ? "Show again" : "Dismiss incident"}
-            </button>
-            {row.status === "resolved" && (
-              <span role="status">
-                Dismissed. New flagged activity can bring it back.
-              </span>
-            )}
-          </div>
         </>
       )}
     </section>

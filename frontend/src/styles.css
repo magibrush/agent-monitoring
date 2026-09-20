@@ -3300,3 +3300,20 @@ main {
 
 .incident-event-assessment { display:flex; align-items:flex-start; gap:8px; margin:8px 0; }
 .incident-event-assessment p { margin:0; font-size:12px; line-height:1.6; color:#697991; }
+
+/* Incident review keeps evidence prominent and context within reach. */
+.incident-list-card { position:relative; border-bottom:1px solid #edf0f5; }
+.incident-list-card:last-child { border-bottom:0; }
+.incident-list-card .attention-row { padding-bottom:50px!important; border-bottom:0; }
+.incident-list-dismiss { position:absolute; bottom:12px; right:18px; font-size:12px; gap:6px; }
+.incident-finding-list { display:grid; gap:12px; list-style:none; counter-reset:finding; padding:0; margin:12px 0 18px; }
+.incident-finding-list > li { counter-increment:finding; position:relative; border:1px solid #e1e6ef; background:white; border-radius:8px; padding:12px 14px 12px 46px; }
+.incident-finding-list > li::before { content:counter(finding); position:absolute; top:14px; left:14px; display:grid; place-items:center; width:22px; height:22px; border-radius:50%; background:#edf1ff; color:#536abd; font-size:11px; font-weight:600; }
+.incident-finding-list > li > p { margin:0 0 8px; }
+.incident-context summary { cursor:pointer; padding:10px 12px; border:1px solid #e1e6ef; border-radius:6px; background:#f8f9fc; color:#526176; font-size:12px; }
+.incident-context summary:hover { background:#edf1ff; }
+.incident-context summary:focus-visible { outline:2px solid #536abd; outline-offset:3px; }
+.incident-context details > .incident-conversation { margin-top:18px; }
+.incident-context details > summary .context-hide,
+.incident-context details[open] > summary .context-show { display:none; }
+.incident-context details[open] > summary .context-hide { display:inline; }
