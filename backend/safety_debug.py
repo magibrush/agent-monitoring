@@ -29,6 +29,6 @@ def verdict(job):
     reason = f"Debug mode forced {result}. No LLM was called."
     if result == "allow" and job.snapshot.get("action_truncated"):
         result = "review"
-        reason = "Debug mode requested allow, but the action is incomplete. Human review is required; incomplete actions cannot be approved. No LLM was called."
+        reason = "Debug mode requested allow, but Relay's review snapshot was truncated by its size limit. This request cannot be approved; deny it and submit a smaller action. No LLM was called."
     return {"recommendation": result, "risk": "unknown", "reason": reason,
             "source": "debug", "evidence": [], "missing_context": []}

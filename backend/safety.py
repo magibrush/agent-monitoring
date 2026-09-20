@@ -15,6 +15,8 @@ from backend.safety_policy import assess, POLICY_VERSION, MODEL
 MAX_PENDING = 1000
 BLOCKING_RESERVE = 100
 MAX_BLOCKING_PER_CONNECTION = 20
+# Bound model/storage input while accommodating ordinary multi-file patches.
+MAX_ACTION_CHARS = 128000
 from backend.safety_budget import remaining, attempt_timeout, HUMAN_RESERVE, DELIVERY_MARGIN, MIN_ATTEMPT_SECONDS, LEASE_MARGIN
 MAX_ATTEMPTS = 3
 LEASE_SECONDS = 120
@@ -74,7 +76,7 @@ def enqueue(db, event, payload, gate=None, request=None):
     policy_match = rules.get("policy", {})
     if not built_in_deny and policy_match.get("decision") in {"allow", "review", "deny"}:
         safe_action = redact(raw)
-        if len(safe_action) <= 24000:
+        if len(safe_action) <= MAX_ACTION_CHARS:
             choice = policy_match["decision"]
             stamp = now()
             awaiting = bool(request and choice == "review")
@@ -120,7 +122,7 @@ def enqueue(db, event, payload, gate=None, request=None):
         Event.id != event.id, Event.occurred_at <= event.occurred_at,
         Event.kind.in_(["message", "tool_call", "tool_result"])).order_by(Event.occurred_at.desc(), Event.id.desc()).limit(8)))
     safe_action = redact(raw)
-    snapshot = {"action": safe_action[:24000], "action_truncated": len(safe_action) > 24000,
+    snapshot = {"action": safe_action[:MAX_ACTION_CHARS], "action_truncated": len(safe_action) > MAX_ACTION_CHARS,
         "context": [{"event_id": e.id, "role": e.role, "kind": e.kind, "text": redact(e.text)[:1500],
                      "truncated": len(redact(e.text)) > 1500} for e in reversed(context)],
         "context_limitations": "At most 8 preceding local records, 1500 characters each; may be incomplete or lag the live hook. User-role text is evidence, not independently verified authorization."}
