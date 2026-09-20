@@ -4,12 +4,7 @@ import {
   ArrowLeft,
   ArrowUpRight,
   CheckCircle2,
-  ChevronRight,
   FolderSearch,
-  Link2,
-  MessageSquare,
-  Plus,
-  Unlink,
 } from "lucide-react";
 import { api, json, type Connection } from "./api";
 import { Modal } from "./ui";
@@ -26,10 +21,18 @@ type Incident = {
   resolution: string | null;
   revision: number;
   grouping_reason: string;
+  signature: string | null;
   action_count: number;
   created_at: string;
   last_activity_at: string;
   previous_id: string | null;
+  headline: string;
+  explanation: string;
+  next_step: string;
+  rule: { id: string; name: string } | null;
+  session_count: number;
+  session_title: string | null;
+  resurfaced: string | null;
   first_request_at: string | null;
   last_request_at: string | null;
 };
@@ -49,6 +52,7 @@ type IncidentAction = Action & {
   } | null;
 };
 type Detail = Incident & {
+  followup: { changed: boolean; message: string; applied_at?: string } | null;
   actions: IncidentAction[];
   related: Incident[];
   nearby: Incident[];
@@ -60,17 +64,6 @@ type Detail = Incident & {
     created_at: string;
   }[];
   activity_total: number;
-};
-const statusLabels = {
-  new: "New",
-  investigating: "Investigating",
-  resolved: "Resolved",
-};
-const resolutions: Record<string, string> = {
-  expected: "Expected activity",
-  policy: "Policy needs adjusting",
-  addressed: "Issue addressed",
-  other: "Other",
 };
 const outcomeLabels: Record<string, string> = {
   denied: "Blocked",
@@ -127,7 +120,7 @@ export function IncidentActionMenu({
     <>
       <button className="secondary" onClick={() => setVisible(true)}>
         <FolderSearch size={15} />
-        Add to incident
+        Save for review
       </button>
       {visible && (
         <Modal close={() => !busy && setVisible(false)}>
@@ -138,15 +131,15 @@ export function IncidentActionMenu({
               void save();
             }}
           >
-            <h2 id="dialog-title">Keep this action for investigation</h2>
+            <h2 id="dialog-title">Save this request for review</h2>
             <label className="incident-field">
-              Incident
+              Save to
               <select
-                aria-label="Incident"
+                aria-label="Save to"
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
               >
-                <option value="">Create a new incident</option>
+                <option value="">Start a new item</option>
                 {choices.data?.items.map((row) => (
                   <option value={row.id} key={row.id}>
                     {row.title}
@@ -166,11 +159,11 @@ export function IncidentActionMenu({
               </label>
             )}
             <p>
-              Existing incidents shown here belong to this connection. Adding an
-              action doesn’t change its decision.
+              Items shown here belong to this connection. Adding an action
+              doesn’t change its decision.
             </p>
             {choices.error && (
-              <p className="error">Could not load existing incidents.</p>
+              <p className="error">Could not load saved items.</p>
             )}
             {error && (
               <p className="error" role="alert">
@@ -190,7 +183,7 @@ export function IncidentActionMenu({
                 className="primary"
                 disabled={busy || (!target && !title.trim())}
               >
-                {target ? "Attach action" : "Create incident"}
+                {target ? "Attach action" : "Save request"}
               </button>
             </div>
           </form>
@@ -200,17 +193,16 @@ export function IncidentActionMenu({
   );
 }
 
-export function Incidents({
-  connections,
-  selected,
-  open,
-  history,
-}: {
+type AttentionProps = {
   connections: Connection[];
   selected: string | null;
   open: (id: string | null) => void;
   history: () => void;
-}) {
+  reviewRule: (ruleId: string, incidentId: string) => void;
+  settings: () => void;
+};
+
+export function Incidents(props: AttentionProps) {
   const [status, setStatus] = useState("open"),
     [connection, setConnection] = useState(""),
     [search, setSearch] = useState(""),
@@ -227,173 +219,158 @@ export function Incidents({
     refetchInterval: 3000,
   });
   useEffect(() => {
-    if (offset && rows.data && offset >= rows.data.total)
-      setOffset(Math.max(0, Math.floor((rows.data.total - 1) / 20) * 20));
-  }, [rows.data, offset]);
-  if (selected)
-    return (
-      <Investigation
-        key={selected}
-        id={selected}
-        open={open}
-        history={history}
-      />
-    );
+    setOffset(0);
+  }, [status, connection, search]);
+  useEffect(() => {
+    if (offset && rows.data && offset >= rows.data.total) setOffset(0);
+  }, [offset, rows.data]);
   return (
-    <section className="panel incident-inbox" aria-label="Incidents">
-      <div className="incident-inbox-heading">
+    <section className="attention-workspace" aria-label="Needs attention">
+      <div className="safety-history-heading attention-heading">
         <div>
-          <h2>Incidents</h2>
-          <p>Related requests, kept together for a closer look.</p>
+          <h2>Needs attention</h2>
+          <p className="safety-muted">
+            Repeated interruptions and problems worth a closer look.
+          </p>
         </div>
-        <button className="secondary" onClick={history}>
-          <Plus size={15} />
-          Create from action history
-        </button>
+        <select
+          aria-label="Attention status"
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+        >
+          <option value="open">Current</option>
+          <option value="resolved">Dismissed or resolved</option>
+          <option value="all">All</option>
+        </select>
       </div>
-      <div className="incident-filters">
-        <label>
-          Status
-          <select
-            value={status}
-            onChange={(e) => {
-              setStatus(e.target.value);
-              setOffset(0);
-            }}
-          >
-            <option value="open">Open</option>
-            <option value="new">New</option>
-            <option value="investigating">Investigating</option>
-            <option value="resolved">Resolved</option>
-            <option value="all">All incidents</option>
-          </select>
-        </label>
-        <label>
-          Connection
-          <select
-            value={connection}
-            onChange={(e) => {
-              setConnection(e.target.value);
-              setOffset(0);
-            }}
-          >
-            <option value="">All connections</option>
-            {connections.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="incident-search">
-          Find an incident
-          <input
-            type="search"
-            value={search}
-            placeholder="Search titles…"
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setOffset(0);
-            }}
-          />
-        </label>
+      <div className="attention-filters">
+        <input
+          aria-label="Find an item"
+          placeholder="Find an item…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select
+          aria-label="Attention connection"
+          value={connection}
+          onChange={(e) => setConnection(e.target.value)}
+        >
+          <option value="">All connections</option>
+          {props.connections.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
       </div>
-      {rows.error ? (
+      {rows.error && (
         <p className="error" role="alert">
           {rows.error.message}
         </p>
-      ) : rows.isPending ? (
-        <p className="safety-muted">Loading incidents…</p>
-      ) : !rows.data.total ? (
-        <div className="incident-empty">
-          <FolderSearch size={36} strokeWidth={1.4} />
-          <h3>
-            {search || connection || status !== "open"
-              ? "No incidents match"
-              : "Nothing to investigate right now"}
-          </h3>
-          <p>
-            {search || connection || status !== "open"
-              ? "Try a different filter, or look through action history."
-              : "Relay groups recorded concerns and repeated blocks or failures here. You can also start an incident from any action in history."}
-          </p>
-          <button className="secondary" onClick={history}>
-            Browse action history
-          </button>
-        </div>
-      ) : (
-        <>
-          <div className="incident-list">
-            {rows.data.items.map((row) => (
-              <button
-                className="incident-row"
-                key={row.id}
-                onClick={() => open(row.id)}
-              >
-                <span className={`incident-kind ${row.kind}`}>
-                  <FolderSearch size={20} />
-                </span>
-                <span className="incident-row-copy">
-                  <strong>{row.title}</strong>
-                  <span>
-                    {row.connection_name} · {row.action_count}{" "}
-                    {row.action_count === 1 ? "request" : "requests"}
-                    {row.kind === "service" ? " · Service issue" : ""}
-                  </span>
-                  <small>Last request {date(row.last_activity_at)}</small>
-                </span>
-                <span className={`incident-status ${row.status}`}>
-                  {statusLabels[row.status]}
-                </span>
-                <ChevronRight size={16} />
-              </button>
-            ))}
-          </div>
-          <div className="safety-pager">
-            <small>
-              {offset + 1}–{Math.min(offset + 20, rows.data.total)} of{" "}
-              {rows.data.total}
-            </small>
-            <button
-              className="secondary"
-              disabled={!offset}
-              onClick={() => setOffset(offset - 20)}
-            >
-              Previous
-            </button>
-            <button
-              className="secondary"
-              disabled={offset + 20 >= rows.data.total}
-              onClick={() => setOffset(offset + 20)}
-            >
-              Next
-            </button>
-          </div>
-        </>
       )}
+      <div className="safety-history-workbench">
+        <div className="safety-records panel attention-list">
+          {rows.error ? null : rows.isPending ? (
+            <p className="safety-muted">Loading…</p>
+          ) : !rows.data?.total ? (
+            <div className="attention-empty">
+              <CheckCircle2 size={28} />
+              <h3>
+                {search || connection || status !== "open"
+                  ? "No matching items"
+                  : "Nothing needs attention"}
+              </h3>
+              <p>
+                {search || connection || status !== "open"
+                  ? "Try another filter."
+                  : "Repeated blocks, approval requests and service failures will appear here. Individual requests stay in action history."}
+              </p>
+              <button className="secondary" onClick={props.history}>
+                View action history
+              </button>
+            </div>
+          ) : (
+            rows.data.items.map((row) => (
+              <button
+                key={row.id}
+                className="safety-action-row attention-row"
+                aria-pressed={props.selected === row.id}
+                onClick={() => props.open(row.id)}
+              >
+                <span className="attention-row-title">{row.headline}</span>
+                <span className="attention-row-copy">{row.explanation}</span>
+                <span className="attention-meta">
+                  {row.connection_name} · {row.action_count} requests ·{" "}
+                  {row.session_count === 1
+                    ? row.session_title
+                    : `${row.session_count} sessions`}
+                </span>
+                <span className="attention-meta">
+                  {row.status === "resolved"
+                    ? "Dismissed / resolved · "
+                    : row.resurfaced
+                      ? "New activity · "
+                      : ""}
+                  {date(row.last_activity_at)}
+                </span>
+              </button>
+            ))
+          )}
+          {!!rows.data && rows.data.total > 20 && (
+            <div className="safety-pager">
+              <button disabled={!offset} onClick={() => setOffset(offset - 20)}>
+                Previous
+              </button>
+              <span>
+                {offset + 1}–{Math.min(offset + 20, rows.data.total)} of{" "}
+                {rows.data.total}
+              </span>
+              <button
+                disabled={offset + 20 >= rows.data.total}
+                onClick={() => setOffset(offset + 20)}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
+        <aside className="safety-inspector panel attention-inspector">
+          {props.selected ? (
+            <AttentionDetail
+              key={props.selected}
+              {...props}
+              id={props.selected}
+            />
+          ) : (
+            <div className="attention-empty">
+              <FolderSearch size={25} />
+              <h3>A useful next step</h3>
+              <p>
+                Select an item to review the affected requests, adjust a
+                matching rule, or check what held things up.
+              </p>
+            </div>
+          )}
+        </aside>
+      </div>
     </section>
   );
 }
 
-function Investigation({
+function AttentionDetail({
   id,
   open,
   history,
-}: {
-  id: string;
-  open: (id: string | null) => void;
-  history: () => void;
-}) {
+  reviewRule,
+  settings,
+}: AttentionProps & { id: string }) {
   const [offset, setOffset] = useState(0),
     [activityOffset, setActivityOffset] = useState(0),
-    [note, setNote] = useState(""),
-    [resolution, setResolution] = useState("addressed"),
-    [resolve, setResolve] = useState(false);
+    [note, setNote] = useState("");
   const [selected, setSelected] = useState<number | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const client = useQueryClient(),
-    heading = useRef<HTMLHeadingElement>(null);
+  const client = useQueryClient();
   const query = useQuery({
     queryKey: ["incidents", id, offset, activityOffset],
     queryFn: () =>
@@ -403,48 +380,33 @@ function Investigation({
     refetchInterval: 3000,
   });
   const row = query.data;
+  const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    heading.current?.focus();
+    if (!row) return;
+    heading.current?.focus({ preventScroll: true });
+    if (matchMedia("(max-width: 700px)").matches)
+      heading.current?.scrollIntoView({ block: "center" });
   }, [!!row]);
-  useEffect(() => {
-    if (row && offset >= row.action_count && offset)
-      setOffset(Math.max(0, Math.floor((row.action_count - 1) / 20) * 20));
-  }, [row, offset]);
   async function work(fn: () => Promise<unknown>) {
     setBusy(true);
     setError("");
     try {
       await fn();
-      await client.invalidateQueries({ queryKey: ["incidents"] });
-      await client.invalidateQueries({ queryKey: ["incident-targets"] });
     } catch (err) {
       setError((err as Error).message);
-      await client.invalidateQueries({ queryKey: ["incidents"] });
     } finally {
+      await client.invalidateQueries({ queryKey: ["incidents"] });
       setBusy(false);
     }
   }
-  function change(status: IncidentStatus) {
-    return work(async () => {
-      await api(
-        `/safety/incidents/${id}`,
-        json("PATCH", {
-          revision: row!.revision,
-          status,
-          resolution: status === "resolved" ? resolution : null,
-        }),
-      );
-      setResolve(false);
-    });
-  }
   return (
     <section
-      className="incident-investigation"
-      aria-label="Incident investigation"
+      className="attention-detail inspection-detail"
+      aria-label="Attention details"
     >
-      <button className="secondary" onClick={() => open(null)}>
-        <ArrowLeft size={15} />
-        All incidents
+      <button className="text-button" onClick={() => open(null)}>
+        <ArrowLeft size={14} />
+        Back to list
       </button>
       {query.error && (
         <p className="error" role="alert">
@@ -452,371 +414,229 @@ function Investigation({
         </p>
       )}
       {!row ? (
-        <p>Loading incident…</p>
+        !query.error && <p>Loading details…</p>
       ) : (
         <>
-          <div className="panel incident-summary">
-            <div className="incident-summary-heading">
-              <div>
-                <div className="incident-eyebrow">
-                  {row.kind === "service" ? "Service issue" : "Investigation"} ·{" "}
-                  {row.connection_name}
-                </div>
-                <h2 tabIndex={-1} ref={heading}>
-                  {row.title}
-                </h2>
-              </div>
-              <span className={`incident-status ${row.status}`}>
-                {statusLabels[row.status]}
-              </span>
-            </div>
-            <p>{row.grouping_reason}</p>
-            <div className="incident-summary-meta">
-              <span>
-                {row.action_count} linked{" "}
-                {row.action_count === 1 ? "request" : "requests"}
-              </span>
-              {row.first_request_at && (
-                <span>First request {date(row.first_request_at)}</span>
-              )}
-              {row.last_request_at && (
-                <span>Last request {date(row.last_request_at)}</span>
-              )}
-            </div>
-            {row.resolution && (
-              <div className="incident-resolution">
-                <CheckCircle2 size={16} />
-                {resolutions[row.resolution]}
-              </div>
+          <span className="attention-meta">
+            {row.connection_name} ·{" "}
+            {row.kind === "service" ? "Service problem" : "Requests to review"}
+          </span>
+          <h2 ref={heading} tabIndex={-1}>
+            {row.headline}
+          </h2>
+          <p>{row.explanation}</p>
+          <p className="attention-meta">
+            {row.action_count} {row.action_count === 1 ? "request" : "requests"}{" "}
+            ·{" "}
+            {row.session_count === 1
+              ? row.session_title
+              : `${row.session_count} sessions`}
+          </p>
+          {row.resurfaced && row.status !== "resolved" && (
+            <p className="policy-feedback">{row.resurfaced}</p>
+          )}
+          <div className="attention-actions">
+            {row.rule && (
+              <button
+                className="primary"
+                onClick={() => reviewRule(row.rule!.id, id)}
+              >
+                Review rule
+              </button>
             )}
-            <div className="incident-summary-actions">
-              {row.status === "new" && (
-                <button
-                  className="primary"
-                  disabled={busy}
-                  onClick={() => void change("investigating")}
-                >
-                  Start investigating
-                </button>
+            {row.next_step === "diagnostics" && (
+              <button
+                className="primary"
+                onClick={() => setSelected(row.actions[0]?.event_id ?? null)}
+              >
+                See where time went
+              </button>
+            )}
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() =>
+                void work(() =>
+                  api(
+                    `/safety/incidents/${id}`,
+                    json("PATCH", {
+                      revision: row.revision,
+                      status: row.status === "resolved" ? "new" : "resolved",
+                      resolution:
+                        row.status === "resolved" ? null : "dismissed",
+                    }),
+                  ),
+                )
+              }
+            >
+              {row.status === "resolved" ? "Show again" : "Dismiss"}
+            </button>
+          </div>
+          {row.status === "resolved" ? (
+            <p className="safety-muted" role="status">
+              {row.resolution !== "dismissed"
+                ? "Resolved. You can show this item again whenever you need it."
+                : row.signature
+                  ? "Dismissed. New repeated activity can bring this item back."
+                  : "Dismissed. Saved in history for whenever you need it."}
+            </p>
+          ) : (
+            <p className="safety-muted">
+              Dismissing this item leaves rules and pending approvals as they
+              are.
+            </p>
+          )}
+          {row.followup?.changed && (
+            <div className="attention-followup">
+              <strong>Since the rule changed</strong>
+              {row.followup.applied_at && (
+                <small>{date(row.followup.applied_at)}</small>
               )}
-              {row.status !== "resolved" ? (
+              <p>{row.followup.message}</p>
+              <small>
+                This describes later requests on this connection; it doesn’t
+                prove the original problem is fixed.
+              </small>
+            </div>
+          )}
+          {row.next_step === "diagnostics" && (
+            <button className="text-button" onClick={settings}>
+              Open protection settings
+            </button>
+          )}
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          <h3>Affected requests</h3>
+          {row.actions.map((action) => (
+            <div className="attention-evidence" key={action.link_id}>
+              <button
+                className="attention-evidence-toggle"
+                aria-expanded={selected === action.event_id}
+                onClick={() =>
+                  setSelected(
+                    selected === action.event_id ? null : action.event_id,
+                  )
+                }
+              >
+                <strong>{action.tool_name || "Request"}</strong>
+                <span>
+                  {outcomeLabels[
+                    currentOutcome(action.evaluation, action.safety_state)
+                  ] || currentOutcome(action.evaluation, action.safety_state)}
+                </span>
+                <small>{date(action.occurred_at)}</small>
+              </button>
+              {selected === action.event_id && (
                 <>
-                  <button
-                    className="secondary"
-                    disabled={busy}
-                    onClick={history}
+                  <ActionDetail item={action} close={() => setSelected(null)} showTimings={row.kind === "service"} />
+                  {!action.evaluation && action.snapshot && <pre className="hook-config">{action.snapshot.action}</pre>}
+                  <a
+                    className="text-button"
+                    href={`#explorer?session=${encodeURIComponent(action.session_id)}&event=${action.event_id}`}
                   >
-                    <Link2 size={15} />
-                    Attach from history
-                  </button>
-                  <button
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => setResolve(!resolve)}
-                  >
-                    Resolve incident
-                  </button>
+                    Open conversation <ArrowUpRight size={13} />
+                  </a>
+                  {action.source === "manual" && row.status !== "resolved" && (
+                    <button
+                      className="text-button"
+                      disabled={busy}
+                      aria-label={`Detach action ${action.event_id}`}
+                      onClick={() =>
+                        void work(() =>
+                          api(
+                            `/safety/incidents/${id}/actions/${action.link_id}`,
+                            { method: "DELETE" },
+                          ),
+                        )
+                      }
+                    >
+                      Remove from this item
+                    </button>
+                  )}
                 </>
-              ) : (
-                <button
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() => void change("investigating")}
-                >
-                  Reopen incident
-                </button>
               )}
             </div>
-            {resolve && (
-              <form
-                className="incident-resolve-form"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void change("resolved");
+          ))}
+          {row.action_count > 20 && (
+            <div className="safety-pager">
+              <button
+                disabled={!offset}
+                onClick={() => {
+                  setOffset(offset - 20);
+                  setSelected(null);
                 }}
               >
-                <label className="incident-field">
-                  How did this turn out?
-                  <select
-                    aria-label="How did this turn out?"
-                    value={resolution}
-                    onChange={(e) => setResolution(e.target.value)}
-                  >
-                    {Object.entries(resolutions).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <p>
-                  Closing this investigation doesn’t approve or retry any
-                  request.
-                </p>
-                <div>
-                  <button
-                    className="secondary"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setResolve(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button className="primary" disabled={busy}>
-                    Save resolution
-                  </button>
-                </div>
-              </form>
-            )}
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
-          </div>
-          <div className="incident-workbench">
-            <section
-              className="panel incident-timeline"
-              aria-label="Incident requests"
+                Previous requests
+              </button>
+              <button
+                disabled={offset + 20 >= row.action_count}
+                onClick={() => {
+                  setOffset(offset + 20);
+                  setSelected(null);
+                }}
+              >
+                Next requests
+              </button>
+            </div>
+          )}
+          <details className="attention-more">
+            <summary>Notes and activity</summary>
+            <p className="safety-muted">{row.grouping_reason}</p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void work(async () => {
+                  await api(
+                    `/safety/incidents/${id}/notes`,
+                    json("POST", { text: note }),
+                  );
+                  setNote("");
+                });
+              }}
             >
-              <div className="incident-section-heading">
-                <h3>Requests and evidence</h3>
-                <span>{row.action_count}</span>
+              <label className="incident-field">
+                Add a note
+                <textarea
+                  value={note}
+                  maxLength={10000}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+              </label>
+              <button className="secondary" disabled={busy || !note.trim()}>
+                Save note
+              </button>
+            </form>
+            {row.activity.map((a) => (
+              <div className="attention-activity" key={a.id}>
+                <p>{a.text}</p>
+                <small>{date(a.created_at)}</small>
               </div>
-              {!row.actions.length && (
-                <p className="safety-muted">
-                  No actions attached. Your notes and investigation history are
-                  still here.
-                </p>
-              )}
-              {row.actions.map((action) => {
-                const outcome = currentOutcome(
-                  action.evaluation,
-                  action.safety_state,
-                );
-                return (
-                  <article key={action.link_id} className="incident-request">
-                    <div className="incident-request-heading">
-                      <strong>{action.tool_name || "Tool"}</strong>
-                      <span className={`incident-outcome ${outcome}`}>
-                        {outcomeLabels[outcome]}
-                      </span>
-                    </div>
-                    <p className="incident-session">
-                      {action.title} · {date(action.occurred_at)}
-                    </p>
-                    <p className="incident-request-reason">
-                      {action.evaluation?.result?.reason ||
-                        action.evaluation?.error ||
-                        "No assessment recorded."}
-                    </p>
-                    {action.snapshot && (
-                      <pre className="incident-command">
-                        {displayAction(action.snapshot.action)}
-                      </pre>
-                    )}
-                    <p className="incident-execution">
-                      Execution:{" "}
-                      {{
-                        succeeded: "succeeded",
-                        completed: "completed",
-                        failed: "failed",
-                      }[action.execution_outcome || ""] ?? "unknown"}
-                    </p>
-                    <div className="incident-request-actions">
-                      <button
-                        className="text-button"
-                        aria-expanded={selected === action.link_id}
-                        onClick={() =>
-                          setSelected(
-                            selected === action.link_id ? null : action.link_id,
-                          )
-                        }
-                      >
-                        {selected === action.link_id
-                          ? "Hide details"
-                          : outcome === "awaiting_review"
-                            ? "Review this request"
-                            : "Inspect evidence"}
-                      </button>
-                      <a
-                        href={`#explorer?session=${encodeURIComponent(action.session_id)}&event=${action.event_id}`}
-                      >
-                        Open conversation <ArrowUpRight size={13} />
-                      </a>
-                      <button
-                        className="text-button"
-                        disabled={busy}
-                        aria-label={`Detach action ${action.event_id}`}
-                        onClick={() =>
-                          void work(async () => {
-                            await api(
-                              `/safety/incidents/${id}/actions/${action.link_id}`,
-                              { method: "DELETE" },
-                            );
-                            if (selected === action.link_id) setSelected(null);
-                          })
-                        }
-                      >
-                        <Unlink size={13} />
-                        Detach
-                      </button>
-                    </div>
-                    {selected === action.link_id && (
-                      <ActionDetail
-                        item={action}
-                        close={() => setSelected(null)}
-                      />
-                    )}
-                  </article>
-                );
-              })}
+            ))}
+            {row.activity_total > 30 && (
               <div className="safety-pager">
-                <small>
-                  {row.action_count
-                    ? `${offset + 1}–${Math.min(offset + 20, row.action_count)} of ${row.action_count}`
-                    : "0 requests"}
-                </small>
                 <button
-                  className="secondary"
-                  disabled={!offset}
-                  onClick={() => {
-                    setOffset(offset - 20);
-                    setSelected(null);
-                  }}
+                  disabled={!activityOffset}
+                  onClick={() => setActivityOffset(activityOffset - 30)}
                 >
-                  Previous
+                  Newer activity
                 </button>
                 <button
-                  className="secondary"
-                  disabled={offset + 20 >= row.action_count}
-                  onClick={() => {
-                    setOffset(offset + 20);
-                    setSelected(null);
-                  }}
+                  disabled={activityOffset + 30 >= row.activity_total}
+                  onClick={() => setActivityOffset(activityOffset + 30)}
                 >
-                  Next
+                  Older activity
                 </button>
               </div>
-            </section>
-            <aside
-              className="panel incident-notes"
-              aria-label="Investigation notes"
-            >
-              <div className="incident-section-heading">
-                <h3>Your investigation</h3>
-                <MessageSquare size={17} />
-              </div>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void work(async () => {
-                    await api(
-                      `/safety/incidents/${id}/notes`,
-                      json("POST", { text: note }),
-                    );
-                    setNote("");
-                    setActivityOffset(0);
-                  });
-                }}
-              >
-                <label className="incident-field">
-                  Add a note
-                  <textarea
-                    rows={4}
-                    maxLength={4000}
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    placeholder="What did you find?"
-                  />
-                </label>
-                <button className="secondary" disabled={busy || !note.trim()}>
-                  Save note
-                </button>
-              </form>
-              <ol className="incident-activity">
-                {row.activity.map((item) => (
-                  <li
-                    key={item.id}
-                    className={item.kind === "note" ? "is-note" : ""}
-                  >
-                    <p>{item.text}</p>
-                    <small>
-                      {item.actor} · {date(item.created_at)}
-                    </small>
-                  </li>
-                ))}
-              </ol>
-              {row.activity_total > 30 && (
-                <div className="safety-pager">
-                  <button
-                    className="secondary"
-                    disabled={!activityOffset}
-                    onClick={() => setActivityOffset(activityOffset - 30)}
-                  >
-                    Newer
-                  </button>
-                  <button
-                    className="secondary"
-                    disabled={activityOffset + 30 >= row.activity_total}
-                    onClick={() => setActivityOffset(activityOffset + 30)}
-                  >
-                    Older
-                  </button>
-                </div>
-              )}
-              {row.related.length > 0 && (
-                <div className="incident-related">
-                  <h3>Related investigations</h3>
-                  {row.related.map((item) => (
-                    <button
-                      key={item.id}
-                      className="text-button"
-                      onClick={() => open(item.id)}
-                    >
-                      {item.title}
-                      <ChevronRight size={14} />
-                    </button>
-                  ))}
-                </div>
-              )}
-              {row.nearby?.length > 0 && (
-                <div className="incident-related">
-                  <h3>Possibly related</h3>
-                  <p className="safety-muted">
-                    Other concerns from the same session within ten minutes.
-                    Kept separate until you investigate.
-                  </p>
-                  {row.nearby.map((item) => (
-                    <button
-                      key={item.id}
-                      className="text-button"
-                      onClick={() => open(item.id)}
-                    >
-                      {item.title}
-                      <ChevronRight size={14} />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </aside>
-          </div>
+            )}
+            <button className="text-button" onClick={history}>
+              Add requests from history
+            </button>
+          </details>
         </>
       )}
     </section>
   );
-}
-
-function displayAction(raw: string) {
-  try {
-    const parsed = JSON.parse(raw),
-      args = parsed.tool_input ?? parsed;
-    return typeof args.command === "string"
-      ? args.command
-      : typeof args.cmd === "string"
-        ? args.cmd
-        : JSON.stringify(args, null, 2);
-  } catch {
-    return raw;
-  }
 }

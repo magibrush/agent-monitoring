@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Plus, ShieldCheck, Terminal, GitBranch, FileText, Pencil, Trash2, History, Pause, Play, ChevronDown } from "lucide-react";
 import { warnUntested, setWarnUntested } from "./PolicyPreferences";
 import { Modal } from "./ui";
+import { PolicyRequestPreview } from "./PolicyRequestPreview";
 import { PolicyResults } from "./PolicyResults";
 import { api, json, type Connection } from "./api";
 
@@ -33,7 +34,7 @@ function newRule(activity: Activity = "shell", effect: Effect = "review", name =
 const split = (value: string) => value.split(/[\n,]/).map(x => x.trim()).filter(Boolean);
 
 
-export function SafetyPolicies({ connections, close }: { connections: Connection[]; close: () => void }) {
+export function SafetyPolicies({ connections, close, attention }: { connections: Connection[]; close: () => void; attention?: { ruleId: string; incidentId: string } | null }) {
   const client = useQueryClient();
   const result = useQuery({ queryKey: ["policies"], queryFn: () => api<Policies>("/safety/policies"), refetchInterval: 3000 });
   const [tab, setTab] = useState<"draft" | "live">("draft");
@@ -85,13 +86,24 @@ export function SafetyPolicies({ connections, close }: { connections: Connection
     if (!draft?.previewed_at && warnUntested()) { setShowChanges(false); setHideWarning(false); setConfirmApply(true); }
     else transition("activate");
   }
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!attention || !data || focused.current) return;
+    focused.current = true;
+    const version = draft ?? live;
+    const rule = version?.rules.find(r => r.id === attention.ruleId);
+    if (!rule) { setNotice(draft ? "This rule isn't in the saved draft. Review the changes below before applying it." : "This rule is no longer in the applied policy."); return; }
+    setTab(draft ? "draft" : "live");
+    setEditor({ rule: structuredClone(rule), rules: structuredClone(version!.rules), revision: data.revision, scope: rule.connection_ids.length ? "selected" : "all", generation: 0 });
+  }, [attention, data, draft, live]);
   const scopeText = (r: Rule) => r.connection_ids.length ? r.connection_ids.map(id => connections.find(c => c.id === id)?.name ?? "Removed connection").join(", ") : "All connections";
   const selectPreset = (t: Preset) => setEditor(e => e ? { ...e, generation: e.generation + 1, scope: "all", rule: { ...presetRule(t), id: e.rule.id } } : e);
   return <section className={`policy-workspace ${savingToggle ? "policy-toggle-saving" : ""}`} aria-label="Safety policies">
-    <div className="policy-heading"><button className="secondary" onClick={close}><ArrowLeft size={15} />Back to Safety</button><h2>Policies</h2>{!editor && <><button className="secondary" aria-expanded={history} onClick={() => setHistory(!history)}><History size={15} />History</button><button className="primary" data-available={!!data} disabled={!data || busy} onClick={() => draft && !isDraft ? setTab("draft") : edit(newRule())}>{!(draft && !isDraft) && <Plus size={15} />}{draft && !isDraft ? "Open draft" : "Add rule"}</button></>}</div>
+    <div className="policy-heading"><button className="secondary" onClick={close}><ArrowLeft size={15} />{attention ? "Back to Needs attention" : "Back to Safety"}</button><h2>Policies</h2>{!editor && <><button className="secondary" aria-expanded={history} onClick={() => setHistory(!history)}><History size={15} />History</button><button className="primary" data-available={!!data} disabled={!data || busy} onClick={() => draft && !isDraft ? setTab("draft") : edit(newRule())}>{!(draft && !isDraft) && <Plus size={15} />}{draft && !isDraft ? "Open draft" : "Add rule"}</button></>}</div>
     {(error || result.error) && <p className="error" role="alert">{error || result.error?.message}</p>}
     {result.isPending && <p>Loading policies…</p>}
     {notice && <div className="policy-feedback" role="status">{notice}<button className="text-button" onClick={() => setNotice("")}>Dismiss</button></div>}
+    {attention && data && <PolicyRequestPreview incidentId={attention.incidentId} revision={data.revision} hasDraft={!!draft} editing={!!editor} />}
     {editor ? <div className="policy-compose">
       <RuleEditor key={`${editor.rule.id}-${editor.generation}`} editor={editor} connections={connections} busy={busy} change={change} scope={scope => setEditor({ ...editor, scope, rule: { ...editor.rule, connection_ids: [] } })} cancel={() => setEditor(null)} save={() => {
         if (editor.scope === "selected" && !editor.rule.connection_ids.length) { setError("Choose at least one connection."); return; }

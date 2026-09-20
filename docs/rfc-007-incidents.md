@@ -1,40 +1,45 @@
-# RFC 007: Incident investigations
+# RFC 007: Needs attention
 
 Implemented 20 September 2026. Extends RFC 006's operator-triage milestone.
 
-## Workflow
+## Purpose and workflow
 
-Safety keeps live, individual approvals at the top. Below them, Incidents and Action history separate ongoing investigations from recorded requests. History filters never hide live approvals.
+Help people find repeated interruptions, adjust the rule responsible, and check subsequent activity. Individual successful blocks stay in history instead of becoming another task. Live approvals remain at the top of Safety and are unaffected by inbox filters or dismissals.
 
-Incidents have a factual title, connection, grouping explanation, linked requests, notes, and an append-only activity log. Start investigating, resolve with a reason, or reopen. Resolution choices are Expected activity, Policy needs adjusting, Issue addressed, and Other. These operations never approve, retry, or change an assessment. Operators are identified as the local operator; authenticated ownership and assignment remain future work.
+Needs attention uses the same compact list and inspector as action history. Each item explains the observed pattern and offers a relevant next step. A policy interruption opens the exact rule in the existing draft, or the applied policy if no draft exists. A missing rule is reported without recreating it. Existing draft edits are preserved.
 
-Create an incident from any action's inspector, or attach it to an open incident on the same connection. Detaching preserves the source action and records the correction. Linked evidence retains the assessment identity rather than silently switching to the latest retrospective result. The request list and investigation activity are paginated. Conversation links open Explorer around the source action. Unknown execution remains unknown even after a release receipt.
+After saving changes, **Test affected requests** compares the draft against up to 500 of the item's latest saved requests. Results show previous recommendations and proposed policy decisions. Built-in protections retain priority. Incomplete, redacted or truncated requests are marked unavailable. No judge runs, decisions change, or requests execute. This focused check does not mark the whole draft as simulated; the existing full simulation and application flow remains available.
+
+After applying a changed rule, the item reports subsequent assessments on its connection, up to the latest 2,000. It counts blocking requests whose recorded winning rule still required review or denial, and states when no later assessments exist. This is an observation about later activity, not proof that a problem was fixed. Debug assessments and retrospective retries are excluded. Rule removal and policy pausing do not imply success.
+
+Service items open the existing request timing inspector and link to protection settings. Notes, audit activity and manual attachments are optional. **Dismiss** requires no resolution form and does not alter policy or pending approvals. **Show again** restores the item. Historical resolved records remain readable.
 
 ## Automatic grouping
 
-The API runs a separate background correlation cycle every two seconds, reading at most 100 completed, failed, or skipped assessments per cycle. It makes no model calls and never participates in a blocking decision. SQLite still has one writer; correlation uses a short busy timeout and retries on a later cycle when storage is busy.
+A separate background cycle reads up to 100 eligible assessments every two seconds, including pending human reviews. It never calls a model or participates in a blocking decision. SQLite uses a short busy timeout so correlation yields to gate writes.
 
-- Built-in prohibitions and judge deny recommendations open a concern immediately. Titles attribute the concern to its source, without claiming malicious intent.
-- Custom-policy denials and other blocked requests open a concern after three matching requests within ten minutes. Ordinary Ask me requests do not open one.
-- Three evaluation failures, capacity failures, or expirations within ten minutes open a service incident. Service grouping uses the connection and failure category, including across its sessions.
-- Concern grouping uses connection, session, finding/policy rule, tool, and a lexically normalized file path. Where a file target is unavailable, exact assessed action hashes must match. No filesystem lookups or shell interpretation are performed.
-- Once an incident is open, further matching requests within the ten-minute window attach to it. A later episode creates a linked incident. After resolution, new activity follows the same creation thresholds and links back to the prior investigation. Delayed assessment of an earlier request adds evidence to the closed investigation without reopening it.
-- Other incidents in the same session near the same time can appear as possibly related. They are not automatically merged.
+- A single successful block stays in action history.
+- A single high-risk deny recommendation in shadow mode opens an item, since Relay did not block that request. Execution remains unknown unless recorded elsewhere.
+- Three interruptions from the same policy rule on one connection within ten minutes open one item, including across files and sessions. The winning rule is recovered from the policy version assessed, using the same priority order as matching.
+- Other repeated denials use connection, session, finding, tool and normalized file path. Without a file target, assessed action hashes must match. Normalization is lexical; it never reads target files.
+- Three evaluation failures, capacity failures or expirations within ten minutes open a service item, grouped by connection and failure category.
+- Matching activity keeps updating an open item even after an idle gap. Three new matching requests within ten minutes bring a dismissed item back under the same ID, with an explanation. Earlier requests that complete late attach to the dismissed record without reopening it.
+- Legacy records resolved with an explicit reason retain the previous linked-recurrence behavior.
 
-Debug assessments and retrospective retries are excluded. Policy simulations do not enqueue assessments and cannot create incidents. The monitor starts from migration time, so existing assessments are not automatically backfilled. A crash resumes from persisted candidate records; candidate classification, grouping, links, and audit entries commit together. Explicit manual attachments take precedence over automatic grouping for the attached assessment.
+Debug assessments and retrospective retries are excluded. The monitor starts from installation time, so old assessments are not automatically backfilled. Candidate records make correlation restart-safe; classification, links and activity commit together. Manual attachment takes precedence for that assessment. Existing saved items are preserved during this update.
 
 ## Storage and API
 
-Migration 0015 adds incidents, incident_links, incident_activity, incident_candidates, and incident_monitor. Connection deletion cascades through its investigations in the same database transaction. Original source transcripts are untouched. The monitor's installation timestamp survives restarts.
+Migration 0015 introduced incidents, links, activity, candidates and the monitor cutoff. This refinement needs no new migration. Connection deletion cascades through its saved items in the same transaction. Source transcripts are untouched.
 
-`/api/safety/incidents` supports filtered, paginated listing and manual creation. Detail returns linked evidence, activity, recurrences, and nearby investigations. Separate endpoints change status, append notes, attach actions, and detach links. Revision checks reject stale status changes. Local mutation locking coordinates API edits, correlation, and connection deletion; this is still a single-API-process application.
+`/api/safety/incidents` retains filtered listing, manual creation, notes, attachment, detachment and revision-checked status changes. Detail adds a factual summary, recorded winning rule and observed follow-up. `POST /api/safety/incidents/{id}/preview` requires the current policy revision and a saved draft. It returns a bounded comparison without mutating policy state. Local locks coordinate correlation, edits, policy comparisons and connection deletion; deployment remains single-process.
 
-No incident operation changes a policy, human approval, judge result, or gate receipt. Those decisions retain their existing APIs and exact-request checks. Notes and evidence are local plaintext under the app's existing storage model.
+Evidence retains its original assessment identity. Request lists and activity are paginated, and links open Explorer at the source request. No inbox operation approves, retries or replaces an assessment. Notes and evidence remain local plaintext under the existing storage model.
 
 ## Validation and rollout
 
-Backend coverage includes thresholds, session/connection isolation, time windows, restart deduplication, exclusions, late assessments, recurrences, manual corrections, unchanged decisions, pagination, and connection deletion. Migration verification upgrades an isolated 0014 database with existing records, downgrades, and upgrades again. Browser coverage exercises the real API from action history through notes, attachment, resolution, reopening, detachment, and Explorer navigation on desktop and mobile.
+Backend tests cover quiet successful blocks, grouping across sessions, thresholds, time windows, restart deduplication, exclusions, late assessments, dismissal and recurrence, unchanged approvals, manual corrections, pagination, connection deletion, draft revision checks, focused comparisons and observed follow-up. Browser tests exercise both the optional manual workflow and the rule-review, comparison, apply and return path on desktop and mobile.
 
-Build the frontend, back up the local database, apply migration 0015, and restart the API. Existing requests should finish before restarting. The worker contract is unchanged. Historical investigations can be created manually; no model calls or historical replays are needed for rollout.
+Build the frontend and restart the API after active blocking requests finish. Existing migration 0015 and worker contracts are unchanged. Previously installed instances retain their saved items; new correlation uses the quieter rules.
 
-Local rollout completed after a SQLite backup with no active blocking requests. The API and two-lane worker were restarted; migration 0015 and the incident endpoint were verified. The full backend suite passed during implementation, followed by all 12 incident tests including migration and pending-approval invariants. All 32 browser scenarios passed across the full run and focused rerun after updating two stale UI expectations. TypeScript and the production build pass; the existing bundle-size warning remains.
+Validation completed: 199 backend tests passed, followed by the 14 incident tests after the final search change. All 33 existing browser scenarios passed; the final focused run passed four scenarios including the new service diagnostics path (34 distinct scenarios in total). TypeScript and the production build pass; the existing bundle-size warning remains. The local API was restarted after a database backup and a check for active blocking requests. Health, worker heartbeat and the summary endpoint were verified.

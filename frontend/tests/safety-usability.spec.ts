@@ -37,7 +37,7 @@ test("realistic safety layout, history scope, and flat action detail", async ({ 
   await expect(page.getByLabel("Action details", { exact: true })).toContainText("Attempts to remove files");
   await expect(page.getByLabel("Action inspector", { exact: true })).toBeFocused();
   await expect.poll(async () => (await page.getByLabel("Action inspector", { exact: true }).boundingBox())!.y).toBeLessThan(200);
-  await expect(page.getByLabel("Action details", { exact: true }).locator("details")).toHaveCount(1);
+  await expect(page.getByLabel("Action details", { exact: true }).locator("details:not(.incident-history-action)")).toHaveCount(1);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: "../data/qa/safety-detail-simple.png" });
   await page.getByRole("button", { name: "Close action details" }).click();

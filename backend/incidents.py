@@ -4,6 +4,7 @@ import json
 import ntpath
 import posixpath
 import threading
+from types import SimpleNamespace
 from datetime import datetime, timedelta
 from typing import Literal
 
@@ -12,12 +13,12 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select, text
 
 from backend.db import (ChatSession, Connection, Event, Incident, IncidentActivity,
-    IncidentCandidate, IncidentLink, IncidentMonitor, SafetyEvaluation, now)
+    IncidentCandidate, IncidentLink, IncidentMonitor, SafetyEvaluation, PolicyVersion, PolicyState, PolicyChange, now)
 from backend.providers import PROVIDERS
 
 router = APIRouter(prefix="/api/safety/incidents")
 lock = threading.RLock()
-RESOLUTIONS = {"expected": "Expected activity", "policy": "Policy needs adjusting", "addressed": "Issue addressed", "other": "Other"}
+RESOLUTIONS = {"expected": "Expected activity", "policy": "Policy needs adjusting", "addressed": "Issue addressed", "other": "Other", "dismissed": "Dismissed"}
 
 
 def store():
@@ -54,16 +55,17 @@ def latest_job(db, event):
         .order_by((SafetyEvaluation.mode == "blocking").desc(), SafetyEvaluation.created_at.desc(), SafetyEvaluation.id.desc()).limit(1))
 
 
-def classify(job, event, session):
+def classify(job, event, session, db=None):
     result, rules = job.result or {}, job.rules or {}
     if job.debug_result or job.model == "debug" or result.get("source") == "debug" or (job.diagnostics or {}).get("retry_of"):
         return None
     service = job.status in {"failed", "skipped"} or job.decision in {"error", "expired"}
     denied = job.decision == "deny" or result.get("recommendation") == "deny"
-    if not service and not denied:
+    policy_review = result.get("source") == "policy" and result.get("recommendation") == "review" and job.mode == "blocking"
+    if not service and not denied and not policy_review:
         return None
     try:
-        action = json.loads(job.snapshot.get("action", "{}"))
+        action = json.loads((job.snapshot or {}).get("action", "{}"))
         if not isinstance(action, dict): action = {}
     except (ValueError, TypeError):
         action = {}
@@ -71,7 +73,7 @@ def classify(job, event, session):
     if not isinstance(args, dict): args = {}
     raw_path = args.get("file_path", args.get("path"))
     resource = ""
-    if isinstance(raw_path, str) and raw_path and not job.snapshot.get("action_truncated"):
+    if isinstance(raw_path, str) and raw_path and not (job.snapshot or {}).get("action_truncated"):
         cwd = args.get("workdir", args.get("cwd", action.get("cwd"))) or ""
         # Lexical normalization only. Investigation must never touch the target filesystem.
         pathmod = ntpath if ntpath.splitdrive(raw_path)[0] or "\\" in raw_path or ntpath.splitdrive(str(cwd))[0] else posixpath
@@ -85,15 +87,22 @@ def classify(job, event, session):
         family = "deadline" if job.decision == "expired" else "capacity" if job.status == "skipped" else "evaluation"
         key = [session.connection_id, "service", family]
         title = {"deadline": "Requests timing out", "capacity": "Review capacity reached", "evaluation": "Evaluations failing"}[family]
-        reason = "Grouped because requests on this connection had the same kind of failure within ten minutes."
+        reason = "Opened after three requests on this connection had the same kind of failure within ten minutes. Later matching failures update this item."
+    elif source == "policy":
+        winner = recorded_rule(db, job) if db is not None else None
+        key = [session.connection_id, "policy", winner["id"] if winner else sorted(signal)]
+        title = f"Repeated requests matched {winner["name"]}" if winner else "Repeated policy interruptions"
+        reason = "Grouped because the same policy rule interrupted requests on this connection three times within ten minutes. Later matching requests update this item."
     else:
         key = [session.connection_id, session.id, source, signal, event.tool_name, resource or job.input_hash]
         target = resource.replace("\\", "/").rsplit("/", 1)[-1] if resource else event.tool_name or "tool"
-        title = f"{target}: {'rule prohibition' if source == 'rules' else 'judge concern' if source != 'policy' else 'repeated blocked requests'}"
+        title = f"Repeated requests for {target}"
         reason = "Grouped because requests came from the same session, used the same tool and finding, and targeted the same file within ten minutes." if resource else "Grouped because requests came from the same session with the same assessed action and finding within ten minutes."
     return {"signature": hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest(), "title": title[:200],
         "kind": "service" if service else "concern", "reason": reason,
-        "immediate": not service and source != "policy" and result.get("recommendation") == "deny"}
+        # A single prevented request isn't another task. Surface a single serious
+        # advisory finding only when Relay did not block it; execution is unknown.
+        "immediate": not service and source != "policy" and job.mode == "shadow" and result.get("risk") == "high" and result.get("recommendation") == "deny"}
 
 
 def link_action(db, incident, event, job, source):
@@ -117,11 +126,11 @@ def correlate(db, limit=100):
         return 0
     query = select(SafetyEvaluation, Event, ChatSession).join(Event, Event.id == SafetyEvaluation.event_id).join(ChatSession, ChatSession.id == Event.session_id).join(Connection)
     rows = db.execute(query.where(Connection.provider.in_(PROVIDERS), SafetyEvaluation.created_at >= monitor.enabled_at,
-        SafetyEvaluation.status.in_(["completed", "failed", "skipped"]),
+        SafetyEvaluation.status.in_(["completed", "failed", "skipped", "awaiting_review"]),
         ~select(IncidentCandidate.evaluation_id).where(IncidentCandidate.evaluation_id == SafetyEvaluation.id).exists())
         .order_by(SafetyEvaluation.created_at, SafetyEvaluation.id).limit(limit)).all()
     for job, event, session in rows:
-        info = classify(job, event, session)
+        info = classify(job, event, session, db)
         candidate = IncidentCandidate(evaluation_id=job.id, signature=info["signature"] if info else None, occurred_at=job.created_at, handled=not bool(info))
         db.add(candidate); db.flush()
         if not info: continue
@@ -142,15 +151,19 @@ def correlate(db, limit=100):
                 continue
             eligible = eligible.where(IncidentCandidate.occurred_at > previous.resolved_at)
         candidates = list(db.scalars(eligible))
-        high = (datetime.fromisoformat(job.created_at) + timedelta(minutes=10)).isoformat()
-        active = previous if previous and previous.status != "resolved" and low <= previous.last_activity_at <= high else None
-        if not active and not info["immediate"] and len(candidates) < 3: continue
+        active = previous if previous and previous.status != "resolved" else None
+        if not active and len(candidates) < 3 and (not info["immediate"] or (previous and previous.resolution == "dismissed")): continue
+        if not active and previous and previous.resolution == "dismissed":
+            active = previous
+            active.status, active.resolution, active.resolved_at = "new", None, None
+            active.revision += 1
+            log(db, active, "resurfaced", f"Shown again after {len(candidates)} new matching requests.", "Relay")
         if not active:
             active = Incident(connection_id=session.connection_id, title=info["title"], kind=info["kind"], signature=info["signature"],
                 grouping_reason=info["reason"], previous_id=previous.id if previous else None,
                 created_at=job.created_at, last_activity_at=job.created_at)
             db.add(active); db.flush()
-            log(db, active, "created", "Opened from a recorded prohibition or judge concern." if info["immediate"] else "Opened after three matching requests within ten minutes.", "Relay")
+            log(db, active, "created", "A high-risk concern was recorded in shadow mode; Relay did not block this request." if info["immediate"] else "Opened after three matching requests within ten minutes.", "Relay")
         for c in candidates:
             evidence = db.get(SafetyEvaluation, c.evaluation_id)
             link_action(db, active, db.get(Event, evidence.event_id), evidence, "automatic")
@@ -170,7 +183,110 @@ def summary(db, row):
     connection = db.get(Connection, row.connection_id)
     count = db.scalar(select(func.count()).select_from(IncidentLink).where(IncidentLink.incident_id == row.id))
     first, last = db.execute(select(func.min(Event.occurred_at), func.max(Event.occurred_at)).join(IncidentLink, IncidentLink.event_id == Event.id).where(IncidentLink.incident_id == row.id)).one()
-    return {**dump(row), "connection_name": connection.name, "action_count": count, "first_request_at": first, "last_request_at": last}
+    return {**dump(row), "connection_name": connection.name, "action_count": count, "first_request_at": first, "last_request_at": last,
+            **insight(db, row)}
+
+
+def recorded_rule(db, job, versions=None):
+    """Recover the priority winner from the version assessed, not today's rules."""
+    if not job or (job.result or {}).get("source") != "policy": return None
+    policy = (job.rules or {}).get("policy", {})
+    versions = versions if versions is not None else {}
+    version_id = policy.get("version")
+    if version_id not in versions:
+        versions[version_id] = db.get(PolicyVersion, version_id) if version_id else None
+    version = versions[version_id]
+    if not version: return None
+    matches = [r for r in version.rules if r.get("id") in policy.get("rule_ids", [])]
+    return min(matches, key=lambda r: ({"deny": 0, "review": 1, "judge": 2, "allow": 3}.get(r.get("effect"), 4), r["id"])) if matches else None
+
+
+def insight(db, row):
+    fields = ("id", "mode", "decision", "status", "result", "rules", "review_ready_at", "human_decision", "gate", "deadline")
+    query = select(*[getattr(SafetyEvaluation, key).label(key) for key in fields], Event.id.label("event_id"), ChatSession.title.label("session_title")).select_from(IncidentLink).join(Event, Event.id == IncidentLink.event_id).join(ChatSession, ChatSession.id == Event.session_id).outerjoin(SafetyEvaluation, SafetyEvaluation.id == IncidentLink.evaluation_id).where(IncidentLink.incident_id == row.id)
+    # Exact totals use SQL; explanations inspect a bounded sample, disclosed below.
+    total = db.scalar(select(func.count()).select_from(query.subquery()))
+    rows = [(SimpleNamespace(**{key: r[key] for key in fields}) if r["id"] else None,
+             SimpleNamespace(id=r["event_id"]), SimpleNamespace(title=r["session_title"]))
+            for r in db.execute(query.order_by(Event.occurred_at, IncidentLink.id).limit(500)).mappings()]
+    sessions = db.scalar(select(func.count(func.distinct(Event.session_id))).select_from(IncidentLink).join(Event, Event.id == IncidentLink.event_id).where(IncidentLink.incident_id == row.id))
+    blocked = sum(bool(j and j.mode == "blocking" and (j.decision == "deny" or (j.gate or {}).get("decision") == "deny")) for j, _, _ in rows)
+    reviewed = sum(bool(j and (j.review_ready_at or j.human_decision or j.status == "awaiting_review")) for j, _, _ in rows)
+    headline = row.title
+    explanation = "Saved from action history for a closer look."
+    next_step, rule = "evidence", None
+    first_job = next((j for j, _, _ in rows if j), None)
+    versions = {}
+    winner = recorded_rule(db, first_job, versions)
+    winners = [recorded_rule(db, j, versions) for j, _, _ in rows]
+    same_rule = winner and all(r and r["id"] == winner["id"] for r in winners)
+    if row.signature and row.kind != "service":
+        verb = "were blocked" if blocked == len(rows) and rows else "needed a decision" if reviewed == len(rows) and rows else "were flagged"
+        headline = f"{total} matching request{'s' if total != 1 else ''} {verb}" if total <= 500 else f"{total} related requests to review"
+        explanation = f"{sessions} session{'s' if sessions != 1 else ''} requested the same action or file repeatedly."
+        if total == 1 and first_job and first_job.mode == "shadow":
+            headline = "A concern was flagged without blocking"
+            explanation = "The assessment flagged a high-risk request in shadow mode. Check the recorded outcome and context."
+    if same_rule:
+        rule = {"id": winner["id"], "name": winner["name"], "version": first_job.rules["policy"]["version"], "recorded": winner}
+        next_step = "rule"
+        explanation = f"{'The sampled requests' if total > 500 else 'These requests'} matched “{winner['name']}”. Review its scope if this is expected work."
+    if row.kind == "service":
+        rule = None
+        next_step = "diagnostics"
+        headline = f"{total} requests ran into evaluation problems"
+        expired = [j for j, _, _ in rows if j and j.decision == "expired"]
+        short = [j for j in expired if j.review_ready_at and j.deadline and 0 <= (datetime.fromisoformat(j.deadline) - datetime.fromisoformat(j.review_ready_at)).total_seconds() < 5]
+        if expired and len(expired) == len(rows):
+            headline = f"{total} requests expired"
+        explanation = "Check the recorded timing and worker status to see what held these requests up."
+        if short and len(short) == len(rows):
+            explanation = "Each sampled request reached human review with less than five seconds left."
+        elif all(j and j.status == "skipped" for j, _, _ in rows) and rows:
+            explanation = "These requests hit the pending-request limit. Check the queue and worker status."
+    latest_activity = db.scalar(select(IncidentActivity).where(IncidentActivity.incident_id == row.id, IncidentActivity.kind == "resurfaced").order_by(IncidentActivity.id.desc()).limit(1))
+    return {"headline": headline, "explanation": explanation, "next_step": next_step, "rule": rule,
+        "session_count": sessions, "session_title": rows[0][2].title if sessions == 1 and rows else None,
+        "sampled": len(rows), "blocked": blocked, "reviewed": reviewed, "resurfaced": latest_activity.text if latest_activity else None}
+
+
+def followup(db, row, rule):
+    if not rule: return None
+    state = db.get(PolicyState, 1)
+    active = db.get(PolicyVersion, state.active_id) if state and state.active_id else None
+    if not active:
+        return {"message": "Custom rules are paused." if state and state.paused_id else "No custom policy is currently applied.", "changed": False}
+    current = next((r for r in active.rules if r.get("id") == rule["id"]), None)
+    if current == rule["recorded"]:
+        return {"message": "This rule is still using the settings recorded for these requests.", "changed": False}
+    applied = db.scalar(select(PolicyChange).where(PolicyChange.version_id == active.id,
+        PolicyChange.action.in_(["activate", "rollback"])).order_by(PolicyChange.id.desc()).limit(1))
+    if not applied: return {"message": "The applied rule differs from the recorded rule. Its application time is unavailable.", "changed": True}
+    fields = ("id", "result", "rules", "diagnostics", "mode")
+    query = select(*[getattr(SafetyEvaluation, k) for k in fields], Event.session_id).join(Event).join(ChatSession).where(
+        ChatSession.connection_id == row.connection_id, SafetyEvaluation.created_at > applied.created_at,
+        SafetyEvaluation.debug_result.is_(None), SafetyEvaluation.model != "debug",
+        SafetyEvaluation.status.in_(["completed", "failed", "skipped", "awaiting_review"]),
+        SafetyEvaluation.diagnostics["retry_of"].as_string().is_(None))
+    records = db.execute(query.order_by(SafetyEvaluation.created_at.desc()).limit(2001)).mappings().all()
+    capped = len(records) > 2000
+    records = records[:2000]
+    versions = {}
+    triggered = []
+    for record in records:
+        job = SimpleNamespace(**record)
+        winner = recorded_rule(db, job, versions)
+        if job.mode == "blocking" and winner and winner["id"] == rule["id"] and (job.result or {}).get("recommendation") in {"review", "deny"}:
+            triggered.append(record)
+    if not records:
+        message = "No later assessments have been recorded on this connection yet."
+    elif triggered:
+        sessions = len({r["session_id"] for r in triggered})
+        message = f"{len(triggered)} of {'the latest ' if capped else ''}{len(records)} later requests still triggered this rule across {sessions} session{'s' if sessions != 1 else ''}."
+    else:
+        message = f"None of {'the latest ' if capped else ''}{len(records)} later requests on this connection triggered this rule."
+    return {"changed": True, "applied_at": applied.created_at, "removed": current is None,
+        "message": message, "assessed": len(records), "triggered": len(triggered), "capped": capped}
 
 
 @router.get("")
@@ -244,7 +360,8 @@ def detail(id_: str, offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, 
             Event.session_id.in_(session_ids), Event.occurred_at >= lower, Event.occurred_at <= upper)
         nearby = db.scalars(select(Incident).where(Incident.id.in_(nearby_ids), Incident.connection_id == row.connection_id,
             Incident.id.not_in([id_, *[r.id for r in related]])).order_by(Incident.last_activity_at.desc()).limit(5)).all()
-        return {**summary(db, row), "actions": items,
+        metadata = summary(db, row)
+        return {**metadata, "followup": followup(db, row, metadata["rule"]), "actions": items,
             "activity": [dump(a) for a in db.scalars(activity.order_by(IncidentActivity.id.desc()).offset(activity_offset).limit(30))],
             "activity_total": db.scalar(select(func.count()).select_from(activity.subquery())),
             "related": [summary(db, r) for r in related], "nearby": [summary(db, r) for r in nearby]}
@@ -253,7 +370,46 @@ def detail(id_: str, offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, 
 class UpdateIncident(BaseModel):
     revision: int
     status: Literal["new", "investigating", "resolved"]
-    resolution: Literal["expected", "policy", "addressed", "other"] | None = None
+    resolution: Literal["expected", "policy", "addressed", "other", "dismissed"] | None = None
+
+
+class PreviewRequests(BaseModel):
+    revision: int
+
+
+@router.post("/{id_}/preview")
+def preview_requests(id_: str, body: PreviewRequests):
+    from backend import policies
+    with policies.lock, lock, store() as db:
+        row = get_incident(db, id_)
+        state = db.get(PolicyState, 1)
+        if not state or state.revision != body.revision:
+            raise HTTPException(409, "The policy changed. Refresh before testing.")
+        draft = db.get(PolicyVersion, state.draft_id) if state.draft_id else None
+        if not draft: raise HTTPException(409, "Save a draft before testing these requests.")
+        connection = db.get(Connection, row.connection_id)
+        rows = db.execute(select(IncidentLink, SafetyEvaluation, ChatSession).join(Event, Event.id == IncidentLink.event_id)
+            .join(ChatSession, ChatSession.id == Event.session_id).outerjoin(SafetyEvaluation, SafetyEvaluation.id == IncidentLink.evaluation_id)
+            .where(IncidentLink.incident_id == id_).order_by(Event.occurred_at.desc(), IncidentLink.id.desc()).limit(501)).all()
+        counts = {key: 0 for key in ("allow", "review", "deny", "judge", "none", "unavailable")}
+        items = []
+        for link, job, session in rows[:500]:
+            try:
+                if not job or not job.snapshot or job.snapshot.get("action_truncated"): raise ValueError()
+                raw = job.snapshot["action"]
+                payload = json.loads(raw)
+                if not isinstance(payload, dict) or "[REDACTED" in raw: raise ValueError()
+                result = policies.match(draft, payload, connection.id)
+                item = {"event_id": link.event_id, "previous": (job.result or {}).get("recommendation"),
+                    "proposed": result["decision"], "reason": result["reason"], "session": session.title}
+            except (ValueError, KeyError, TypeError, OSError, RuntimeError):
+                item = {"event_id": link.event_id, "previous": (job.result or {}).get("recommendation") if job else None,
+                    "proposed": "unavailable", "reason": "The saved request is incomplete or unavailable.", "session": session.title}
+            item["evaluation_id"] = job.id if job else None
+            counts[item["proposed"]] += 1
+            items.append(item)
+        # This focused comparison doesn't mark the whole draft as simulated.
+        return {"revision": state.revision, "version_id": draft.id, "sampled": len(items), "capped": len(rows) > 500, "counts": counts, "items": items}
 
 
 @router.patch("/{id_}")
@@ -267,7 +423,7 @@ def update(id_: str, body: UpdateIncident):
         row.status, row.resolution = body.status, body.resolution if body.status == "resolved" else None
         row.resolved_at = now() if body.status == "resolved" else None
         row.revision += 1
-        log(db, row, "status", f"Resolved: {RESOLUTIONS[body.resolution]}." if body.status == "resolved" else "Reopened for investigation." if previous == "resolved" else "Started investigating." if body.status == "investigating" else "Marked as new.")
+        log(db, row, "status", "Dismissed. New repeated activity can bring this item back." if body.resolution == "dismissed" else f"Resolved: {RESOLUTIONS[body.resolution]}." if body.status == "resolved" else "Shown in Needs attention again." if previous == "resolved" else "Started investigating." if body.status == "investigating" else "Marked as new.")
         db.commit()
         return summary(db, row)
 
