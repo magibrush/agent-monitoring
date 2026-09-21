@@ -11,6 +11,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { api, json, type Connection } from "./api";
+import { Modal } from "./ui";
 import { ActionDetail, currentOutcome, type Action } from "./SafetyView";
 
 type IncidentStatus = "new" | "investigating" | "resolved";
@@ -132,6 +133,7 @@ export function Incidents(props: AttentionProps) {
     [search, setSearch] = useState(""),
     [offset, setOffset] = useState(0);
   const client = useQueryClient();
+  const [dismissTarget, setDismissTarget] = useState<Incident | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
   async function dismiss(row: Incident) {
@@ -146,6 +148,7 @@ export function Incidents(props: AttentionProps) {
           resolution: row.status === "resolved" ? null : "dismissed",
         }),
       );
+      setDismissTarget(null);
       if (props.selected === row.id) props.open(null);
     } catch (err) {
       setError((err as Error).message);
@@ -174,14 +177,21 @@ export function Incidents(props: AttentionProps) {
   }, [offset, rows.data]);
   return (
     <section className="attention-workspace" aria-label="Incidents">
-      <div className="safety-history-heading attention-heading">
-        <div>
-          <h2>Incidents</h2>
-          <p className="safety-muted">
-            Flagged activity, with the conversation and outcomes gathered for
-            you.
-          </p>
-        </div>
+      {dismissTarget && (
+        <Modal close={() => { if (!busyId) setDismissTarget(null); }}>
+          <div className="modal-heading"><h2 id="dialog-title">Dismiss this incident?</h2></div>
+          <div className="incident-dismiss-body">
+            <strong>{dismissTarget.headline}</strong>
+            <p>This moves the incident out of Current and into Dismissed. Its evidence is kept, and you can show it again. New flagged activity may bring it back.</p>
+            {error && <p className="error" role="alert">{error}</p>}
+            <div className="policy-modal-actions">
+              <button className="secondary" disabled={busyId !== null} onClick={() => setDismissTarget(null)}>Cancel</button>
+              <button className="primary" disabled={busyId !== null} onClick={() => void dismiss(dismissTarget)}>{busyId ? "Dismissing..." : "Dismiss incident"}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      <div className="attention-filters" role="group" aria-label="Filter incidents">
         <select
           aria-label="Attention status"
           value={status}
@@ -191,8 +201,6 @@ export function Incidents(props: AttentionProps) {
           <option value="resolved">Dismissed</option>
           <option value="all">All</option>
         </select>
-      </div>
-      <div className="attention-filters">
         <select
           aria-label="Incident severity"
           value={severity}
@@ -228,7 +236,7 @@ export function Incidents(props: AttentionProps) {
           {rows.error.message}
         </p>
       )}
-      {error && (
+      {error && !dismissTarget && (
         <p className="error" role="alert">
           {error}
         </p>
@@ -289,7 +297,7 @@ export function Incidents(props: AttentionProps) {
                 <button
                   className="text-button incident-list-dismiss"
                   disabled={busyId !== null}
-                  onClick={() => void dismiss(row)}
+                  onClick={() => { setError(""); if (row.status === "resolved") void dismiss(row); else setDismissTarget(row); }}
                   title="Dismissed incidents keep their evidence. New flagged activity can bring them back."
                 >
                   {row.status === "resolved" ? (
@@ -410,7 +418,7 @@ function AttentionDetail({
           return row?.timeline.events.some((e) => e.event_id === eventId) ? (
             <button
               key={eventId}
-              className="text-button"
+              className="text-button evidence-reference"
               onClick={() => {
                 setHighlight(eventId);
                 document
@@ -427,7 +435,7 @@ function AttentionDetail({
           ) : (
             <a
               key={eventId}
-              className="text-button"
+              className="text-button evidence-reference"
               href={`#explorer?session=${encodeURIComponent(event.session_id)}&event=${eventId}`}
             >
               Evidence {eventId}
@@ -475,6 +483,7 @@ function AttentionDetail({
         className={`${event.flagged ? "flagged" : ""} ${highlight === event.event_id ? "highlighted" : ""}`}
       >
         <div className="incident-event-heading">
+          <span className="evidence-label">Evidence {event.event_id}</span>
           <strong>
             {event.kind === "tool_call"
               ? "Tool request"
@@ -488,12 +497,10 @@ function AttentionDetail({
           <time>{new Date(event.occurred_at).toLocaleTimeString()}</time>
         </div>
         {row!.session_count > 1 && <small>{event.session_title}</small>}
-        <pre className="incident-event-text">{evidenceText(event)}</pre>
-        {event.truncated && (
-          <small className="attention-meta">
-            Excerpt · open the conversation for more
-          </small>
-        )}
+        <div className={event.truncated ? "incident-excerpt is-truncated" : "incident-excerpt"}>
+          <pre className="incident-event-text">{evidenceText(event)}</pre>
+          {event.truncated && <div className="incident-truncation" role="img" aria-label="Content truncated; open in conversation to read more" title="Content truncated"><span aria-hidden="true">&#8226;&#8226;&#8226;</span></div>}
+        </div>
         {event.assessment && (
           <div className="incident-event-assessment">
             <Severity

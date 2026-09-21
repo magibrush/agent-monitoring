@@ -33,3 +33,40 @@ test("Safety bars and inspection share outcome and tool scope without a clear-cl
   await expect(page.getByRole("button", { name: "Denied 1", exact: true })).toBeVisible();
   await expect(page.getByLabel("Safety actions").getByRole("button")).toHaveCount(1);
 });
+
+test("live history refresh retains rows and the selected action", async ({ page, request }) => {
+  const base = await (await request.get("/api/metrics")).json();
+  const start = Date.now() - 3600000;
+  const end = start + 3600000;
+  let advance = false;
+  let releaseRefresh!: () => void;
+  const refreshGate = new Promise<void>(resolve => { releaseRefresh = resolve; });
+  await page.route("**/api/metrics?**", route => {
+    const window = { start: new Date(start).toISOString(), end: new Date(end + (advance ? 1000 : 0)).toISOString() };
+    return route.fulfill({ json: { ...base, actions: 2, safety: { unassessed: 2 }, domain: window, viewport: window, interval_seconds: 60, series: [] } });
+  });
+  await page.route("**/api/safety/actions?**", async route => {
+    const params = new URL(route.request().url()).searchParams;
+    if (params.get("safety_state") === "awaiting_review") return route.fulfill({ json: { total: 0, items: [] } });
+    if (params.get("end") === new Date(end + 1000).toISOString()) await refreshGate;
+    return route.fulfill({ json: { total: 2, items: [1, 2].map(id => ({ event_id: id, tool_name: id === 1 ? "Bash" : "Read", title: "Live history session", occurred_at: new Date(start).toISOString(), safety_state: "unassessed", evaluation: null })) } });
+  });
+  try {
+    await page.goto("/#safety?view=history");
+    const rows = page.getByLabel("Safety actions").getByRole("button");
+    await expect(rows).toHaveCount(2);
+    await rows.first().click();
+    await expect(page.getByLabel("Action details", { exact: true })).toContainText("Bash request");
+    await expect(page.locator(".action-session-label")).toHaveCount(0);
+    const refreshing = page.waitForRequest(r => r.url().includes("/api/safety/actions?") && new URL(r.url()).searchParams.get("end") === new Date(end + 1000).toISOString());
+    advance = true;
+    await refreshing;
+    // The next live window is deliberately held pending.
+    await expect(rows).toHaveCount(2);
+    await expect(page.getByLabel("History results")).not.toContainText("Loading actions");
+    await rows.nth(1).click();
+    await expect(page.getByLabel("Action details", { exact: true })).toContainText("Read request");
+    releaseRefresh();
+    await expect(rows.nth(1)).toHaveAttribute("aria-pressed", "true");
+  } finally { releaseRefresh(); }
+});

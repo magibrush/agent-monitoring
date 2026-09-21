@@ -3,12 +3,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, BellRing, CheckCircle2, ChevronRight, Clock3, Search, Settings2, ShieldCheck, X } from "lucide-react";
 import { Bar, ComposedChart, Cell, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, json, type Connection, type SafetyEvaluation } from "./api";
-import { PolicyPreferences } from "./PolicyPreferences";
+import { SafetySettings, type SafetyStatus } from "./SafetySettings";
 import { SafetyPolicies } from "./SafetyPolicies";
 import { Incidents, Severity } from "./Incidents";
-import { SafetyDebug, type DebugConfig } from "./SafetyDebug";
 import { SAFETY_SERIES } from "./Safety";
-import { HookSetup, Modal } from "./ui";
+import { HookSetup } from "./ui";
 import { useTimeChart, TimeChartControls, TimeChartCaption } from "./TimeChart";
 import { RangeNavigator } from "./RangeNavigator";
 import { ChartTooltip } from "./ChartTooltip";
@@ -32,6 +31,11 @@ export function currentOutcome(e: SafetyEvaluation | null, fallback: string) {
   if (e.status === "awaiting_review") return "awaiting_review";
   if (e.mode === "blocking" || ["queued", "running"].includes(e.status)) return "pending";
   return "shadow";
+}
+function ActionSeverity({ evaluation }: { evaluation: SafetyEvaluation | null }) {
+  const result = evaluation?.result;
+  if (!result) return null;
+  return <Severity level={result.recommendation === "review" && result.severity !== "critical" ? "high" : result.severity || result.risk || "medium"} />;
 }
 function ActionCode({ action }: { action: string }) {
   let code = action, cwd = "";
@@ -74,8 +78,8 @@ export function ActionDetail({ item, close, showTimings = false }: { item: Actio
     try { await api(`/safety/evaluations/${e!.id}/retry`, { method: "POST" }); await client.invalidateQueries(); setError("Shadow review queued. Original action remains blocked."); }
     catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   }
-  return <section className="inspection-detail" aria-label="Action details"><div className="modal-heading"><div><h2 id="dialog-title">{item.tool_name} request</h2><p className="action-session-label" title={item.title}><span>Session</span> {item.title || "Untitled session"}</p></div><button className="icon-button" aria-label="Close action details" onClick={close}><X size={20} /></button></div><div className="safety-detail">
-    <Outcome state={currentOutcome(e, item.safety_state)} />{e?.result && <><Severity level={e.result.recommendation === "review" && e.result.severity !== "critical" ? "high" : e.result.severity || e.result.risk || "medium"} />{e.result.suspicious && <span className="incident-suspicion">Suspicious</span>}</>}{e?.result?.source === "debug" && <span className="debug-badge">Debug</span>}<time>{new Date(item.occurred_at).toLocaleString()}</time>
+  return <section className="inspection-detail" aria-label="Action details"><div className="modal-heading"><div><h2 id="dialog-title">{item.tool_name} request</h2></div><button className="icon-button" aria-label="Close action details" onClick={close}><X size={20} /></button></div><div className="safety-detail">
+    <div className="action-metadata"><Outcome state={currentOutcome(e, item.safety_state)} />{e?.result && <><ActionSeverity evaluation={e} />{e.result.suspicious && <span className="incident-suspicion">Suspicious</span>}</>}{e?.result?.source === "debug" && <span className="debug-badge">Debug</span>}<time>{new Date(item.occurred_at).toLocaleString()}</time></div>
 
     {detail.data && e?.status !== "awaiting_review" && <ActionCode action={detail.data.snapshot.action} />}
     {detail.error && <p className="error">{detail.error.message}</p>}
@@ -83,7 +87,6 @@ export function ActionDetail({ item, close, showTimings = false }: { item: Actio
       {e.status === "awaiting_review" ? <ApprovalCard item={{ ...item, evaluation: e }} /> : <p className="detail-reason">{e.result?.reason || e.error || "Evaluation in progress."}</p>}
       <dl className="decision-facts"><div><dt>{e.result?.source === "debug" ? "Debug" : e.result?.source === "policy" ? "Policy" : e.result?.source === "rules" ? "Rules" : "Judge"}</dt><dd>{e.result ? ({ allow: "Allow", review: "Review", deny: "Deny" }[e.result.recommendation] ?? e.result.recommendation) : "Not completed"}</dd></div><div><dt>Human decision</dt><dd>{e.human_decision === "approve" ? "Approved" : e.human_decision === "deny" ? "Denied" : "None"}</dd></div><div><dt>Hook returned</dt><dd>{e.gate ? ({ pass: "Released", deny: "Blocked", error: "Failed", expired: "Expired" }[e.gate.decision] ?? "Unknown") : "Not confirmed"}</dd></div><div><dt>Execution</dt><dd>{({ requested: "Not confirmed", succeeded: "Succeeded", failed: "Failed", completed: "Completed" }[item.execution_outcome || ""] ?? "Unknown")}</dd></div></dl>
       {e.decision === "expired" && <p className="error">Expired. Submit a new tool request; this action cannot resume.</p>}
-      {e.gate?.decision === "pass" && <p className="safety-muted">Released to provider permissions. This does not confirm successful execution.</p>}
       {e.result?.recommendation === "review" && e.decision === "deny" && !e.human_decision && <p className="safety-muted">Review requested; blocked by the previous policy.</p>}
       {e.rules.policy && <p className="safety-muted">Policy v{e.rules.policy.version} · {e.rules.policy.reason}</p>}{e.rules.trial && <p className="safety-muted">Shadow trial v{e.rules.trial.version}: {e.rules.trial.decision === "none" ? "no match" : `would ${e.rules.trial.decision}`}</p>}
       <details className="safety-technical" open={showTimings || undefined}><summary>Technical details</summary><p>{e.result?.source === "rules" ? "Deterministic rules" : e.model} · {e.policy_version} · {e.latency_ms ?? "—"} ms</p>
@@ -110,7 +113,7 @@ export function SafetyWorkspace({ connections, refresh, notify, notifications }:
   useEffect(() => { const navigate = () => { const args = new URLSearchParams(location.hash.split("?")[1]); if (args.has("incident")) openIncident(args.get("incident")); }; window.addEventListener("hashchange", navigate); return () => window.removeEventListener("hashchange", navigate); }, []);
   const [settings, setSettings] = useState(false), [configuring, setConfiguring] = useState<Connection | null>(null);
   const [connection, setConnection] = useState(""), [range, setRange] = useState<Range>(FIT), [outcome, setOutcome] = useState(""), [offset, setOffset] = useState(0), [opened, setOpened] = useState<Action | null>(null);
-  const status = useQuery({ queryKey: ["safety"], queryFn: () => api<{ model: string; key_configured: boolean; key_file: string; debug?: DebugConfig; workers: unknown[]; counts: Record<string, number>; performance?: { requests: number; automatic_pause: { p95_ms: number | null; samples: number }; failed: number; expired: number; missing_receipts: number; truncated: boolean } }>("/safety") });
+  const status = useQuery({ queryKey: ["safety"], queryFn: () => api<SafetyStatus>("/safety") });
   const [tool, setTool] = useState("");
   const [reviewOffset, setReviewOffset] = useState(0);
   const approvals = useQuery({ queryKey: ["safety-actions", "live", reviewOffset], queryFn: () => api<Actions>(`/safety/actions?safety_state=awaiting_review&offset=${reviewOffset}`) });
@@ -122,7 +125,14 @@ export function SafetyWorkspace({ connections, refresh, notify, notifications }:
   const historyScope = chart.narrow.toString();
   const scoped = new URLSearchParams(historyScope);
   scoped.set("tool", tool); scoped.set("safety_state", outcome); scoped.set("offset", String(offset));
-  const actions = useQuery({ queryKey: ["safety-actions", scoped.toString()], queryFn: () => api<Actions>(`/safety/actions?${scoped}`) });
+  // Polling can advance the chart's time bounds without changing the user's
+  // selection. Keep the current rows while that same scope refreshes.
+  const actionScope = JSON.stringify({ connection, tool, range, outcome, offset, bucket, interval: chart.interval, viewport: chart.viewport });
+  const actions = useQuery({
+    queryKey: ["safety-actions", "history", actionScope, scoped.toString()],
+    queryFn: () => api<Actions>(`/safety/actions?${scoped}`),
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[2] === actionScope ? previous : undefined,
+  });
   useEffect(() => { setOffset(0); setBucket(null); }, [connection, range]);
   useEffect(() => { setOffset(0); setOpened(null); }, [outcome, tool, connection, range, bucket, chart.interval, chart.viewport?.start, chart.viewport?.end]);
   useEffect(() => {
@@ -188,13 +198,13 @@ export function SafetyWorkspace({ connections, refresh, notify, notifications }:
     <div className="safety-history-workbench">
     <section className="panel safety-records" aria-label="History results">
       <div className="safety-records-heading"><h2>Actions</h2><label className="safety-tool-search"><Search size={15} /><input aria-label="Find a tool" placeholder="Find a tool…" value={tool} onChange={e => setTool(e.target.value)} /></label></div>
-      <div className="safety-action-list" aria-label="Safety actions">{actions.error ? <p className="error">{actions.error.message}</p> : actions.isPending ? <p>Loading actions…</p> : actions.data?.total === 0 ? <p className="history-empty">No actions in this selection</p> : actions.data?.items.map(item => <button id={`safety-row-${item.event_id}`} className="safety-action-row" aria-pressed={opened?.event_id === item.event_id} key={item.event_id} onClick={() => setOpened(item)}><div><span className="action-row-identity"><strong>{item.tool_name}</strong><span>{item.title}</span></span><span className="action-row-reason">{item.evaluation?.result?.reason || item.evaluation?.error || "No assessment available"}</span></div>{item.evaluation?.result?.source === "debug" && <span className="debug-badge">Debug</span>}<Outcome state={item.safety_state} /><time>{new Date(item.occurred_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time><ChevronRight size={16} /></button>)}</div>
+      <div className="safety-action-list" aria-label="Safety actions">{actions.error ? <p className="error">{actions.error.message}</p> : actions.isPending ? <p>Loading actions…</p> : actions.data?.total === 0 ? <p className="history-empty">No actions in this selection</p> : actions.data?.items.map(item => <button id={`safety-row-${item.event_id}`} className="safety-action-row" aria-pressed={opened?.event_id === item.event_id} key={item.event_id} onClick={() => setOpened(item)}><div><span className="action-row-identity"><strong>{item.tool_name}</strong><span>{item.title}</span></span><span className="action-row-reason">{item.evaluation?.result?.reason || item.evaluation?.error || "No assessment available"}</span><span className="action-metadata"><Outcome state={item.safety_state} /><ActionSeverity evaluation={item.evaluation} />{item.evaluation?.result?.source === "debug" && <span className="debug-badge">Debug</span>}</span></div><time>{new Date(item.occurred_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time><ChevronRight size={16} /></button>)}</div>
       {!!actions.data?.total && <div className="safety-pager"><small>{offset + 1}–{Math.min(offset + 20, actions.data.total)} of {actions.data.total} actions</small>{actions.data.total > 20 && <><button className="secondary" disabled={!offset} onClick={() => setOffset(offset - 20)}>Previous</button><button className="secondary" disabled={offset + 20 >= actions.data.total} onClick={() => setOffset(offset + 20)}>Next</button></>}</div>}
     </section>
     <aside ref={inspector} tabIndex={-1} className="panel safety-inspector" aria-label="Action inspector">{opened ? <ActionDetail key={opened.event_id} item={opened} close={closeInspection} openIncident={openIncident} /> : <div className="safety-inspector-empty"><Search size={30} strokeWidth={1.4} /><strong>Select an action to inspect</strong><span>Command, judge decision and outcome</span></div>}</aside>
     </div>
     </>}
-    {settings && <Modal close={() => setSettings(false)}><div className="modal-heading"><h2 id="dialog-title">Safety settings</h2><button className="icon-button" aria-label="Close safety settings" onClick={() => setSettings(false)}><X size={20} /></button></div><div className="safety-settings-body"><SafetyDebug config={status.data?.debug} /><PolicyPreferences /><h3>Performance · last 24 hours</h3>{status.data?.performance && <dl className="decision-facts"><div><dt>Automatic pause p95</dt><dd>{status.data.performance.automatic_pause.p95_ms == null ? "—" : `${(status.data.performance.automatic_pause.p95_ms / 1000).toFixed(2)} s`} ({status.data.performance.automatic_pause.samples} receipts)</dd></div><div><dt>Failed / expired</dt><dd>{status.data.performance.failed} / {status.data.performance.expired}</dd></div><div><dt>Missing receipts</dt><dd>{status.data.performance.missing_receipts}</dd></div><div><dt>Requests</dt><dd>{status.data.performance.requests}{status.data.performance.truncated ? "+ (latest 10,000)" : ""}</dd></div></dl>}<h3>Notifications</h3><p>Keep a Relay tab open to receive new alerts. Clicking an alert opens Safety. Approve and Deny appear where your browser supports them.</p><button className="secondary" onClick={notifications.toggle} disabled={!notifications.supported}>{notifications.enabled ? "Turn off notifications" : "Enable notifications"}</button><h3>Protection by connection</h3><p className="safety-muted">Configured modes. Restart sessions after changes; hook coverage may vary.</p>{connections.length === 0 && <p>Add a connection to configure protection.</p>}{connections.map(c => <div className="safety-setting-row" key={c.id}><div><strong>{c.name}</strong><small>{!c.hooks_enabled ? "Hooks not installed" : c.gate_enabled ? "Blocking configured" : "Shadow configured"}</small></div><button className="secondary" aria-label={`Configure protection for ${c.name}`} onClick={() => { setSettings(false); setConfiguring(c); }}>Configure</button></div>)}<h3>Judge</h3><p>{status.data?.model ?? "Loading…"}</p><p className="safety-muted">API key file</p><code className="safety-path">{status.data?.key_file}</code><p className="safety-muted">The worker reads this file automatically. Start it with scripts/start-worker.ps1.</p><h3>Data sharing</h3><p>Action arguments and bounded conversation context are sent to Anthropic. Secret redaction is limited.</p><p className="safety-muted">Blocking requests expire after 60 seconds, including human review. Shadow mode records assessments without stopping actions.</p></div></Modal>}
+    {settings && <SafetySettings status={status.data} error={status.error?.message} connections={connections} notifications={notifications} close={() => setSettings(false)} configure={connection => { setSettings(false); setConfiguring(connection); }} />}
     {configuring && <HookSetup connection={configuring} close={() => { setConfiguring(null); setSettings(true); }} done={() => { setConfiguring(null); setSettings(true); refresh(); notify("Protection saved. Restart provider sessions and review Codex hooks in /hooks."); }} />}
   </div>;
 }

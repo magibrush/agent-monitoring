@@ -42,3 +42,38 @@ test("filters and chart window survive navigation; Overview sessions open Explor
     await expect(page.getByRole("dialog")).toHaveCount(0);
   } finally { await request.delete(`/api/connections/${connection.id}`); }
 });
+
+test("Explorer routes restore sessions, action views, and browser history", async ({ page, request }) => {
+  const connection = await (await request.post("/api/connections", { data: { name: "Explorer routes", provider: "codex", path: path.resolve("../data/e2e-source") } })).json();
+  try {
+    await request.post(`/api/connections/${connection.id}/sync`);
+    await page.goto("/#explorer");
+    await expect(page.getByRole("heading", { name: "Explorer", exact: true })).toBeVisible();
+    await expect(page.locator(".explorer-detail-heading")).toHaveCount(0);
+    const rows = page.locator(".session-link");
+    await rows.nth(0).click();
+    await expect(page).toHaveURL(/#explorer\?session=/);
+    const firstUrl = page.url();
+    const firstTitle = await page.locator(".explorer-detail-heading h2").innerText();
+    await rows.nth(1).click();
+    const secondTitle = await page.locator(".explorer-detail-heading h2").innerText();
+    expect(secondTitle).not.toBe(firstTitle);
+    await page.goBack();
+    await expect(page).toHaveURL(firstUrl);
+    await expect(page.locator(".explorer-detail-heading h2")).toHaveText(firstTitle);
+    await page.goForward();
+    await expect(page.locator(".explorer-detail-heading h2")).toHaveText(secondTitle);
+    await page.reload();
+    await expect(page.locator(".explorer-detail-heading h2")).toHaveText(secondTitle);
+    await page.getByRole("button", { name: "Explorer", exact: true }).click();
+    await expect(page).toHaveURL(/#explorer$/);
+    await expect(page.locator(".explorer-detail-heading")).toHaveCount(0);
+    await page.getByRole("button", { name: /^Inspect actions in/ }).first().click();
+    await expect(page).toHaveURL(/kind=tool_call/);
+    await page.reload();
+    await expect(page.getByLabel("Filter event type")).toHaveValue("tool_call");
+    await page.getByRole("button", { name: "Overview", exact: true }).click();
+    await page.goBack();
+    await expect(page.getByLabel("Filter event type")).toHaveValue("tool_call");
+  } finally { await request.delete(`/api/connections/${connection.id}`); }
+});
