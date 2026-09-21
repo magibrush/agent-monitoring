@@ -31,6 +31,32 @@ def valid(event_id):
             "recommendations": [{"text": "Check whether the task needed this configuration.", "evidence_ids": [event_id]}]}
 
 
+def test_evidence_neighbors_with_identical_timestamps(store):
+    seed(store)
+    timestamp = now()
+    with store() as db:
+        for index, role in enumerate(["user", "assistant", "assistant", "tool"]):
+            db.add(Event(session_id="session", external_id=f"before-{index}",
+                role=role, kind="message", text=f"Before {index}",
+                occurred_at=timestamp, payload={}))
+            db.flush()
+        db.commit()
+    evaluation_id, event_id = job(store, source="judge", decision="allow", at=timestamp)
+    with store() as db:
+        # Later user messages must not be mistaken for the intent of this action.
+        for index, role in enumerate(["tool", "assistant", "user"]):
+            db.add(Event(session_id="session", external_id=f"after-{index}",
+                role=role, kind="message", text=f"After {index}",
+                occurred_at=timestamp, payload={}))
+            db.flush()
+        incident = Incident(connection_id="one", title="Concern", grouping_reason="Test")
+        db.add(incident); db.flush()
+        db.add(IncidentLink(incident_id=incident.id, event_id=event_id, evaluation_id=evaluation_id))
+        db.flush()
+        records = analysis.evidence_bundle(db, incident)["events"]
+        assert [record["event_id"] for record in records] == list(range(event_id - 4, event_id + 3))
+
+
 def test_no_key_does_not_consume_attempts(store, monkeypatch):
     id_, _ = prepared(store)
     monkeypatch.setattr(analysis.safety, "read_key", lambda: None)

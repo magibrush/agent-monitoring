@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import path from "node:path";
 import { mkdir, writeFile, appendFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { python } from "./python";
 
 test("live observer setup, receipt, transcript correlation and disable", async ({ page, request }) => {
   const root = path.resolve("../data/e2e-hook-profile/sessions");
@@ -18,7 +19,6 @@ test("live observer setup, receipt, transcript correlation and disable", async (
   await expect(card).toContainText("Waiting for first hook");
   async function deliver(phase: string) {
     await new Promise<void>((resolve, reject) => {
-      const python = path.resolve("../.venv/Scripts/python.exe");
       const child = spawn(python, [path.resolve("../scripts/observe_hook.py"), path.resolve(`../data/hook-queue/${connection.id}`)], { stdio: ["pipe", "pipe", "pipe"] });
       child.on("error", reject);
       child.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`Observer exited ${code}`)));

@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { python } from "./python";
 
 test("blocking denial, safety chart filtering, evidence and mobile layout", async ({ page, request }) => {
   const root = path.resolve("../data/e2e-safety-profile/sessions");
@@ -29,7 +30,7 @@ test("blocking denial, safety chart filtering, evidence and mobile layout", asyn
     await page.getByRole("button", { name: "Close safety settings" }).click();
     // Only send the proposed command as JSON to the gate; never execute it.
     const code = await new Promise<number | null>((resolve, reject) => {
-      const child = spawn(path.resolve("../.venv/Scripts/python.exe"), [path.resolve("../scripts/gate_hook.py"), path.resolve(`../data/hook-queue/${connection.id}`), "codex_cli", root]);
+      const child = spawn(python, [path.resolve("../scripts/gate_hook.py"), path.resolve(`../data/hook-queue/${connection.id}`), "codex_cli", root]);
       child.on("error", reject); child.on("exit", resolve);
       child.stdin.end(JSON.stringify({ session_id: "safety-session", transcript_path: transcript, cwd: root, hook_event_name: "PreToolUse", tool_use_id: "safety-call", tool_name: "Bash", tool_input: { command: "rm -rf /" } }));
     });
