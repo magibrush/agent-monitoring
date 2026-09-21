@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  Eye,
+  ShieldCheck,
+  Clock3,
   ArrowRight,
   Check,
   CircleHelp,
@@ -425,21 +428,27 @@ export function HookSetup({ connection, close, done }: { connection: Connection;
   return <Modal close={() => { if (!busy) close(); }}>
     <div className="modal-heading"><div><h2 id="dialog-title">{connection.hooks_enabled ? "Manage live hooks" : "Set up live hooks"}</h2><p>{connection.name}</p></div><button className="icon-button" aria-label="Close hook setup" disabled={busy} onClick={close}><X size={20} /></button></div>
     <div className="hook-setup-body">
-      <p>Choose how Relay handles tool requests from this agent.</p>
-      {connection.hooks_enabled && <p className="hook-installed">Hooks installed: {connection.gate_enabled ? "Blocking evaluation" : "Observe only"}</p>}
+      <div className="hook-current"><span className={`badge ${connection.hooks_enabled ? "hook-installed" : ""}`}><span className={`status-dot ${connection.hooks_enabled ? "" : "gray"}`} />{connection.hooks_enabled ? "Installed" : "Not installed"}</span>{connection.hooks_enabled && <span>Saved: {connection.gate_enabled ? "Blocking evaluation" : "Observe only"}</span>}{connection.hooks_enabled && gate !== !!connection.gate_enabled && <span className="hook-unsaved" role="status">Unsaved changes</span>}</div>
       <fieldset className="hook-modes" disabled={busy}>
         <legend>Protection mode</legend>
-        <label className={!gate ? "selected" : ""}><input type="radio" name="hook-mode" checked={!gate} onChange={() => setGate(false)} /><span><strong>Observe only</strong><small>Record and assess requests. Relay returns no permission decisions.</small></span></label>
-        <label className={gate ? "selected" : ""}><input type="radio" name="hook-mode" checked={gate} onChange={() => setGate(true)} /><span><strong>Block risky actions</strong><small>Pause covered requests for evaluation. Review requests need your approval in Safety.</small></span></label>
+        <label className={!gate ? "selected" : ""}><input type="radio" name="hook-mode" checked={!gate} onChange={() => setGate(false)} /><Eye size={20} aria-hidden="true" /><span><strong>Observe only</strong><small>Assess without blocking</small></span></label>
+        <label className={gate ? "selected" : ""}><input type="radio" name="hook-mode" checked={gate} onChange={() => setGate(true)} /><ShieldCheck size={20} aria-hidden="true" /><span><strong>Block risky actions</strong><small>Judge checks before execution</small></span></label>
       </fieldset>
-      {gate && <p className="hook-mode-note">Requests wait up to 60 seconds. Denials, timeouts and unavailable evaluators block the action. Coverage is partial.</p>}
-      <div className="info-box">After saving, restart agent sessions.{connection.provider.startsWith("codex") && <> In Codex, review and trust the handler in <code>/hooks</code>.</>} Installed hooks do not confirm enforcement; check a request's gate receipt in Safety.</div>
-      <details className="hook-details"><summary>How it works &amp; technical details</summary>
-        <p>Relay backs up provider settings and preserves other hooks. Notifications are saved locally while Relay is offline. Pausing transcript collection does not remove hooks or disable blocking.</p>
-        <p>Subprocesses, hosted tools and unhooked tool paths may bypass these checks.</p>
-        {setup.data && <><div className="connection-detail"><span>PROVIDER SETTINGS</span><code>{setup.data.path}</code></div><p>{setup.data.instructions}</p><pre className="hook-config">{JSON.stringify(setup.data.config, null, 2)}</pre></>}
+      {gate && <div className="hook-facts"><span><Clock3 size={14} />60s decision window</span><span>Timeouts block</span><span>Partial coverage</span></div>}
+      <div className="hook-next-steps"><strong>After saving</strong><ol><li><span>1</span>Restart agent sessions</li>{connection.provider.startsWith("codex") && <li><span>2</span>Trust the handler in <code>/hooks</code></li>}</ol></div>
+      <details className="hook-details"><summary>Behavior &amp; coverage</summary>
+        <dl className="hook-fact-grid">
+          <div><dt>Review requests</dt><dd>Approve or deny in Safety</dd></div>
+          <div><dt>Timeout or judge unavailable</dt><dd>Blocked in blocking mode</dd></div>
+          <div><dt>Coverage</dt><dd>Hooked tools only; subprocesses and hosted tools may bypass checks</dd></div>
+          <div><dt>Verify blocking</dt><dd>Check a request's Relay response in Safety; installation alone is not proof</dd></div>
+          <div><dt>Settings</dt><dd>Backed up; other hooks preserved</dd></div>
+          <div><dt>Offline</dt><dd>Notifications queued locally</dd></div>
+          <div><dt>Pause collection</dt><dd>Hooks and blocking stay on</dd></div>
+        </dl>
       </details>
-      {connection.hooks_enabled && <div className="hook-remove"><div><strong>Remove live hooks</strong><small>Stops Relay observations and blocking for this profile. Other hooks are preserved. Restart agent sessions afterward.</small></div><button className="secondary danger" disabled={busy} onClick={() => save(false)}>Remove hooks</button></div>}
+      {setup.data && <details className="hook-details hook-configuration"><summary>Configuration</summary><div className="connection-detail"><span>Settings file</span><code>{setup.data.path}</code></div><pre className="hook-config">{JSON.stringify(setup.data.config, null, 2)}</pre></details>}
+      {connection.hooks_enabled && <div className="hook-remove"><small>Stop observing and blocking. Restart sessions after removal.</small><button className="secondary danger" disabled={busy} onClick={() => save(false)}>Remove hooks</button></div>}
       {(error || setup.error) && <div className="error" role="alert">{error || (setup.error as Error).message}</div>}
     </div><div className="modal-footer hook-setup-footer"><button className="secondary" disabled={busy} onClick={close}>Close</button><button className="primary" disabled={busy || !setup.data || (connection.hooks_enabled && gate === !!connection.gate_enabled)} onClick={() => save(true)}>{busy ? "Updating..." : connection.hooks_enabled ? "Save changes" : "Enable live hooks"}</button></div>
   </Modal>;
@@ -524,7 +533,7 @@ export function Connections({
           {error}
         </div>
       )}
-      <p className="safety-muted">Review decisions and configure protection in the Safety workspace tab.</p>
+
       <div className="connection-grid">
         {items.map((c) => (
           <section className="panel connection-card" key={c.id}>
@@ -538,8 +547,7 @@ export function Connections({
               </span>
             </div>
             <h2>{c.name}</h2>
-            <p>{providerLabel(c.provider)} · Local transcript watcher</p>
-            <p>{c.session_count ?? 0} sessions imported</p>
+            <div className="connection-stats"><div><span>Sessions imported</span><strong>{c.session_count ?? 0}</strong></div><div><span>Last sync</span><strong>{date(c.last_sync)}</strong></div></div>
             {c.session_count === 0 && c.last_sync && (
               <div className="info-box">
                 No conversations imported yet. Check the source to see whether
@@ -547,19 +555,12 @@ export function Connections({
               </div>
             )}
             {diagnostics[c.id] && <p role="status">{diagnostics[c.id]}</p>}
-            <div className="connection-detail">
-              <span>SOURCE</span>
-              <code>{c.path}</code>
-            </div>
-            <div className="connection-detail">
-              <span>LAST SUCCESSFUL SYNC</span>
-              <strong>{date(c.last_sync)}</strong>
-            </div>
+            <div className="connection-source-path"><span>Source folder</span><code>{c.path}</code></div>
             {c.error && <div className="error">{c.error}</div>}
-            <div className="connection-detail">
-              <span>LIVE HOOKS</span>
-              <strong className={c.hooks_enabled ? "hook-installed" : ""}>{c.hooks_enabled ? `Installed: ${c.gate_enabled ? "Blocking evaluation" : "Observe only"}` : "Not installed"}</strong>
-              {c.hooks_enabled && <p>{!c.enabled ? "Collection paused; hooks remain installed" : c.hook_last_seen ? `Last received ${date(c.hook_last_seen)}` : "Waiting for first hook; restart agent sessions"}</p>}
+            <div className="connection-hooks">
+              <div className="connection-hooks-heading"><strong><ShieldCheck size={16} />Live hooks</strong><span className="badge">{c.hooks_enabled ? "Installed" : "Not installed"}</span></div>
+              <div className="connection-hook-mode">{c.hooks_enabled ? (c.gate_enabled ? "Blocking evaluation" : "Observe only") : "Connect to assess tool requests"}</div>
+              {c.hooks_enabled && <small>{!c.enabled ? "Collection paused; hooks remain installed" : c.hook_last_seen ? `Last received ${date(c.hook_last_seen)}` : "Waiting for first hook; restart agent sessions"}</small>}
               {c.hook_error && <p className="error">{c.hook_error}</p>}
               <button className="secondary" onClick={() => setHookConnection(c)}>{c.hooks_enabled ? "Manage hooks" : "Set up live hooks"}</button>
             </div>

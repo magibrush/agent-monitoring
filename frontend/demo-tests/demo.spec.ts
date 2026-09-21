@@ -54,7 +54,7 @@ async function tour(page: Page, capture: (name: string) => Promise<void>) {
   await coach.getByRole("button", { name: "See the review decision" }).click();
   await expect(coach.getByRole("heading", { name: "Human review was requested" })).toBeVisible();
   await expect(page.locator('[data-tour="review-decision"]')).toContainText("Blocked by Relay");
-  await expect(page.locator('[data-tour="review-decision"]')).toContainText("Relay denied permission for this action.");
+  await expect(page.locator('[data-tour="review-decision"]')).toContainText("Recorded outcome");
   await expect(page.locator('[data-tour="action-open"]')).toBeHidden();
   if (page.viewportSize()!.width < 700) {
     // The heading updates before the tour's animation-frame measurement and
