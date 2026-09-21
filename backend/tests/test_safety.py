@@ -160,7 +160,7 @@ def test_capacity_and_rules_do_not_depend_on_model(store, tmp_path, monkeypatch)
 
 
 def test_redaction_and_snapshot_limits(store, tmp_path):
-    id_ = add_job(store, tmp_path, tool_input={"command": "echo sk-ant-secret-example " + "x" * 25000})
+    id_ = add_job(store, tmp_path, tool_input={"command": "echo sk-ant-secret-example " + "x" * safety.MAX_ACTION_CHARS})
     with store() as db:
         job = db.get(SafetyEvaluation, id_)
         assert "sk-ant-secret-example" not in json.dumps(job.snapshot)

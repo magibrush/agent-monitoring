@@ -41,23 +41,46 @@ test("automatic flagged allowance explains the conversation, outcome and cited n
     await expect(
       detail.getByRole("heading", { name: "Allowed by the judge, flagged" }),
     ).toBeVisible();
-    await expect(detail.locator(".incident-severity")).toHaveText(["Medium", "Medium"]);
+    await expect(detail.locator(".incident-severity")).toHaveText([
+      "Medium",
+      "Medium",
+    ]);
     await expect(detail).toContainText("Git then rejected the push");
     await expect(
       detail.getByRole("heading", { name: "Suggested next steps" }),
     ).toBeVisible();
-    await expect(detail.locator(".incident-conversation")).toContainText(
-      "leave main alone",
-    );
-    await expect(detail.locator(".incident-conversation")).toContainText(
-      "Release confirmed",
-    );
-    await expect(detail.locator(".incident-conversation")).toContainText(
-      "Execution: failed",
-    );
+    await expect(
+      detail.locator(".incident-conversation").first(),
+    ).toContainText("leave main alone");
+    await expect(
+      detail.locator(".incident-conversation").first(),
+    ).toContainText("Release confirmed");
+    await expect(
+      detail.locator(".incident-conversation").first(),
+    ).toContainText("Execution: failed");
     await expect(
       detail.getByText("Notes and activity", { exact: true }),
     ).toHaveCount(0);
+    const context = detail.locator(".incident-context details").first();
+    const contextText = context.getByText(
+      "I'll update the guide and push the docs-refresh branch.",
+      { exact: true },
+    );
+    await expect(contextText).toBeHidden();
+    await context.locator("summary").click();
+    await expect(contextText).toBeVisible();
+    await expect(context.locator("summary")).toContainText("Hide");
+    // Polling must preserve the reader's expanded context.
+    await page.waitForResponse((response) =>
+      response.url().includes(`/api/safety/incidents/${fixture.incident}?`),
+    );
+    await expect(contextText).toBeVisible();
+    await context.locator("summary").click();
+    await expect(contextText).toBeHidden();
+    await expect(detail.locator(".incident-finding-list > li")).toHaveCount(1);
+    await expect(
+      detail.locator(".incident-conversation > li.flagged"),
+    ).toBeVisible();
     await page.screenshot({
       path: "../data/qa/automated-incident-desktop.png",
       fullPage: true,
@@ -76,16 +99,21 @@ test("automatic flagged allowance explains the conversation, outcome and cited n
       path: "../data/qa/automated-incident-mobile.png",
       fullPage: true,
     });
-    await detail
-      .getByRole("button", { name: "Dismiss incident", exact: true })
-      .click();
-    await expect(detail.getByRole("status")).toContainText("Dismissed");
-    await detail
-      .getByRole("button", { name: "Show again", exact: true })
-      .click();
     await page
       .getByRole("button", { name: "Back to incidents", exact: true })
       .click();
+    const card = page
+      .locator(".incident-list-card")
+      .filter({ hasText: "Allowed by the judge, flagged" });
+    await card
+      .getByRole("button", { name: "Dismiss incident", exact: true })
+      .click();
+    await expect(card).toHaveCount(0);
+    await page.getByLabel("Attention status").selectOption("resolved");
+    await expect(card).toHaveCount(1);
+    await card.getByRole("button", { name: "Show again", exact: true }).click();
+    await expect(card).toHaveCount(0);
+    await page.getByLabel("Attention status").selectOption("open");
     await page.getByLabel("Incident severity").selectOption("critical");
     await expect(
       page.getByText("No matching items", { exact: true }),
@@ -194,9 +222,17 @@ test("missing credentials and failed refresh keep evidence usable without claimi
     const detail = page.getByLabel("Incident details", { exact: true });
     await detail.getByRole("button", { name: "Open Safety settings" }).click();
     await page.getByRole("button", { name: "Close safety settings" }).click();
-    await expect(detail.locator(".incident-conversation")).toContainText(
-      "Release confirmed",
-    );
+    await expect(
+      detail.locator(".incident-conversation").first(),
+    ).toContainText("Release confirmed");
+    const context = detail.locator(".incident-context details").first();
+    const userRequest = context.getByText(/leave main alone/);
+    await expect(userRequest).toBeHidden();
+    await context.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    await expect(userRequest).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(userRequest).toBeHidden();
     await page.screenshot({
       path: "../data/qa/automated-incident-needs-key.png",
       fullPage: true,
@@ -207,9 +243,46 @@ test("missing credentials and failed refresh keep evidence usable without claimi
       "could not be completed",
     );
     await expect(detail).not.toContainText("An updated analysis is queued");
-    await expect(detail.locator(".incident-conversation")).toContainText(
-      "leave main alone",
+    await expect(
+      detail.locator(".incident-conversation").first(),
+    ).toContainText("leave main alone");
+  } finally {
+    await cleanup(request, fixture);
+  }
+});
+
+test("a failed list dismissal keeps the incident available and reports the error", async ({
+  page,
+  request,
+}) => {
+  const fixture = seed();
+  try {
+    await page.route(
+      `**/api/safety/incidents/${fixture.incident}`,
+      async (route) => {
+        if (route.request().method() === "PATCH") {
+          await route.fulfill({
+            status: 409,
+            json: { detail: "This incident changed. Try again." },
+          });
+        } else await route.continue();
+      },
     );
+    await page.goto("/#safety");
+    const card = page
+      .locator(".incident-list-card")
+      .filter({ hasText: "Allowed by the judge, flagged" });
+    await card.getByRole("button", { name: "Dismiss incident" }).click();
+    await expect(page.getByRole("alert")).toContainText(
+      "This incident changed",
+    );
+    await expect(card).toBeVisible();
+    await expect(
+      card.getByRole("button", { name: "Dismiss incident" }),
+    ).toBeEnabled();
+    await expect(
+      page.getByLabel("Incident details", { exact: true }),
+    ).toHaveCount(0);
   } finally {
     await cleanup(request, fixture);
   }
