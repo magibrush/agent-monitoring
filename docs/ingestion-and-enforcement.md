@@ -1,5 +1,7 @@
 # Ingestion and enforcement design
 
+> Historical design record. Setup, UI, and timing details may have changed. See [current setup](setup.md), [architecture](architecture.md), and [usage](usage-reference.md). Test results below belong to this milestone.
+
 Research date: 15 September 2026. This document separates verified integration behavior from the proposed next phase. No hooks, security workers, or blocking controls are installed by v0.1.
 
 ## Integration findings
@@ -12,7 +14,7 @@ Research date: 15 September 2026. This document separates verified integration b
 | Agent runtime we own, later | Emit events directly around each operation | Tool executor or broker enforces decisions | Strongest candidate for controlled stress tests |
 
 
-Codex documents local and archived session transcript locations. We verified the installed Desktop identifies itself with `originator: "Codex Desktop"`; `source: "vscode"` alone cannot distinguish the desktop from an IDE extension. Desktop connections require Desktop provenance; CLI connections use a separate classifier with the same checkpointed reader. Creation provenance stays fixed across resumes. See the README for multi-profile behavior and supported CLI metadata. Codex CLI 0.154.0 uses `originator: "codex-tui"` and `source: "cli"`; the adapter now accepts explicit CLI/exec source independently of the changing client label. Two actual CLI transcripts passed read-only ingestion and replay validation. [Codex troubleshooting](https://learn.chatgpt.com/docs/reference/troubleshooting)
+Codex documents local and archived session transcript locations. We verified the installed Desktop identifies itself with `originator: "Codex Desktop"`; `source: "vscode"` alone cannot distinguish the desktop from an IDE extension. Desktop connections require Desktop provenance; CLI connections use a separate classifier with the same checkpointed reader. Creation provenance stays fixed across resumes. See the [usage reference](usage-reference.md#manage-connections) for multi-profile behavior. Codex CLI 0.154.0 uses `originator: "codex-tui"` and `source: "cli"`; the adapter now accepts explicit CLI/exec source independently of the changing client label. Two actual CLI transcripts passed read-only ingestion and replay validation. [Codex troubleshooting](https://learn.chatgpt.com/docs/reference/troubleshooting)
 
 ### Hook semantics that matter
 
@@ -26,7 +28,7 @@ MCP defines calls to tools exposed by a server. Therefore a proxy can observe/co
 
 Claude Code offers OpenTelemetry metrics/events for usage and operations. Treat telemetry as an observation feed; it is not a synchronous permission protocol. [Claude monitoring](https://code.claude.com/docs/en/monitoring-usage)
 
-## Current pipeline
+## Original observation pipeline
 
 ```mermaid
 flowchart LR
@@ -45,7 +47,7 @@ Collector interval is 3 seconds; UI query refresh is 4 seconds. This is near-rea
 
 Some Codex calls are orchestration wrappers (for example `exec`) that invoke other tools internally. The transcript adapter counts the outer recorded call; it does not infer nested actions from JavaScript or shell text. Future enforcement must instrument the actual tool/executor boundary. Optional sibling `session_index.jsonl` metadata supplies human-readable titles when available.
 
-## Proposed worker architecture (not implemented)
+## Worker proposal at the time
 
 ### 1. Observation path
 

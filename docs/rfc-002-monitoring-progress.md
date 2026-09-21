@@ -1,5 +1,7 @@
 # RFC 002: Multi-provider monitoring progress
 
+> Historical design record. Setup, UI, and timing details may have changed. See [current setup](setup.md), [architecture](architecture.md), and [usage](usage-reference.md). Test results below belong to this milestone.
+
 Status: Implemented for manual testing
 
 ## Progress since the last push

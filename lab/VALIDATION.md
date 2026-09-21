@@ -3,6 +3,8 @@
 These are local development checks, not an LLM detection benchmark or a capacity
 guarantee. Scripted runs use no provider calls. No tool command was executed.
 
+The scripted load run exposed deadline failures under SQLite contention. A later live replay completed without pipeline failures but retained model disagreements, including a false negative investigated below. These historical results do not certify the current checkout.
+
 ## Concurrent traffic
 
 Final deployment topology: collectors and the real worker service in separate
