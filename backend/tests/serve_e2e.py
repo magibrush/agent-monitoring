@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 os.environ['DATABASE_URL'] = 'sqlite:///' + (ROOT / 'data/e2e.db').as_posix()
+os.environ.pop('OPENAI_API_KEY', None)
+os.environ['RELAY_OPENAI_KEY_FILE'] = str(ROOT / 'data/e2e-missing-openai.key')
 os.environ.pop('ANTHROPIC_API_KEY', None)
 os.environ['RELAY_ANTHROPIC_KEY_FILE'] = str(ROOT / 'data/e2e-missing-anthropic.key')
 

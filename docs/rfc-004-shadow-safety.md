@@ -1,5 +1,7 @@
 # RFC 004: Shadow safety evaluation and local rules gate
 
+> Anthropic is the default and recommended judge provider. OpenAI is also available for judgments and incident analysis, but has not been tested with live API calls. See [OpenAI setup](setup.md#optional-openai-credentials-untested). Anthropic-specific details below describe the default configuration.
+
 Historical milestone. [RFC 005](rfc-005-blocking-safety.md) supersedes the gate behavior with blocking Haiku evaluation and chart integration.
 
 Status: Implemented, 17 September 2026. Real Anthropic evaluation awaits a user-supplied API key. Automated API tests use synthetic responses.

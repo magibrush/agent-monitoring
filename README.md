@@ -9,9 +9,9 @@ These instructions use **Windows and PowerShell**. Install:
 - **Python 3.11+** and [uv](https://docs.astral.sh/uv/).
 - **Node.js 22.12+** and **npm 10+**.
 - At least one supported coding agent, with a local conversation to import.
-- An **Anthropic API key** with API credit and access to Claude Haiku for live safety evaluation. Relay does not require an OpenAI API key.
+- An **Anthropic API key** with API credit and access to Claude Haiku for live safety evaluation. OpenAI is also supported, but has not been tested with live API calls. Anthropic is recommended.
 
-You can use monitoring without an Anthropic key; skip steps 3 and 6 if you only want to browse agent activity.
+You can use monitoring without a judge API key; skip steps 3 and 6 if you only want to browse agent activity.
 
 ## 2. Install Relay
 
@@ -37,6 +37,8 @@ agent-monitoring/
 ```
 
 This file is ignored by Git. Live evaluation uses paid Anthropic API calls and sends action details and selected conversation context to Anthropic. Your coding-agent subscription does not replace this API key.
+
+For OpenAI, set `RELAY_JUDGE_PROVIDER=openai` before starting Relay and its worker, and save the key in `.secrets/openai.key` or set `OPENAI_API_KEY`. This selects OpenAI for both judgments and incident analysis. **OpenAI support has not been tested with live API calls; Anthropic is recommended.** See [OpenAI setup](docs/setup.md#optional-openai-credentials-untested).
 
 Already using `ANTHROPIC_API_KEY`? Relay also accepts that environment variable; it takes precedence over the file. See [credential options](docs/setup.md#optional-anthropic-credentials).
 

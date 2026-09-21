@@ -38,6 +38,6 @@ discusses security testing. Actual harmful effects still require escalation or d
 Tests exercise real hook pause → review → human approve/deny → gate receipt using
 synthetic model results, plus expiry, action binding, duplicate/concurrent decisions,
 and browser controls. `scripts/check_judge_calibration.py` is an opt-in live check:
-it sends only built-in synthetic cases to Anthropic, never historical conversations,
+it sends only built-in synthetic cases to the configured judge provider, never historical conversations,
 and executes none of the proposed commands. Passing those cases does not establish
 general model accuracy.

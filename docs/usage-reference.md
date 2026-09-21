@@ -1,5 +1,7 @@
 # Relay usage reference
 
+> Anthropic is the default and recommended judge provider. OpenAI is also available for judgments and incident analysis, but has not been tested with live API calls. See [OpenAI setup](setup.md#optional-openai-credentials-untested). Anthropic-specific details below describe the default configuration.
+
 Detailed behavior and operational notes. Start with the [README](../README.md) or [setup guide](setup.md) for first-time use.
 
 A local agent monitoring app: React + TypeScript frontend, Python API, and SQLite chat storage.
@@ -14,7 +16,7 @@ A local agent monitoring app: React + TypeScript frontend, Python API, and SQLit
 - Codex Desktop, Codex CLI, and Claude Code local transcript watchers, with durable checkpoints, pause/resume, source checks, sync errors, and manual sync.
 - Local-only HTTP access, SQLite WAL, SQLAlchemy models, Alembic migrations, and tests.
 
-Codex Desktop, Codex CLI, and Claude Code are supported integrations. Pre-tool hooks support blocking evaluation with one Anthropic Haiku judge, deterministic prohibitions, deadline handling, and safety outcomes in the existing charts. See [safety setup and boundaries](rfc-005-blocking-safety.md). Connections without the blocking option retain shadow evaluation. Recorded decisions do not prove execution success or complete protection.
+Codex Desktop, Codex CLI, and Claude Code are supported integrations. Pre-tool hooks support blocking evaluation with one configured judge (Anthropic Haiku by default), deterministic prohibitions, deadline handling, and safety outcomes in the existing charts. See [safety setup and boundaries](rfc-005-blocking-safety.md). Connections without the blocking option retain shadow evaluation. Recorded decisions do not prove execution success or complete protection.
 
 Safety also includes [incident investigations](rfc-007-incidents.md): related concerns and repeated blocks or service failures are grouped into persistent investigations with evidence, notes, and resolution. You can create an incident from action history or attach and detach requests yourself. Resolving an incident never approves an action; live approvals stay at the top of Safety.
 
@@ -57,7 +59,7 @@ Open **http://127.0.0.1:8000**. The Python service serves the built frontend and
 
 After installing dependencies, you can also launch everything with `powershell -ExecutionPolicy Bypass -File scripts/start.ps1` from the project root.
 
-That launcher also starts two parallel safety evaluation threads in a separate worker process. If you start Uvicorn manually, run `scripts/start-worker.ps1` separately. Put your API key alone in the ignored `.secrets/anthropic.key` file; workers notice it without restarting. Open **Safety → Settings → Protection by connection → Configure → Enable blocking Haiku evaluation**, then restart agent sessions and trust the Codex handler if prompted. Covered actions wait up to 60 seconds; an allow verdict or your approval continues to native permissions. Review requests appear in **Safety > Needs your decision** with **Approve** and **Deny** controls. The 60-second deadline includes human review; expired calls need a new request. See [human review](human-review.md). The **Safety** workspace puts live approval cards first, followed by a compact action history. Select an outcome chip or chart bar to filter history; click an action to see its verdict and evidence. History filters do not hide live approvals. Judge setup and protection modes are in Settings. See [RFC 005](rfc-005-blocking-safety.md).
+That launcher also starts two parallel safety evaluation threads in a separate worker process. If you start Uvicorn manually, run `scripts/start-worker.ps1` separately. Put your API key alone in the ignored `.secrets/anthropic.key` file; workers notice it without restarting. Open **Safety → Settings → Protection by connection → Configure → Enable blocking judge evaluation**, then restart agent sessions and trust the Codex handler if prompted. Covered actions wait up to 60 seconds; an allow verdict or your approval continues to native permissions. Review requests appear in **Safety > Needs your decision** with **Approve** and **Deny** controls. The 60-second deadline includes human review; expired calls need a new request. See [human review](human-review.md). The **Safety** workspace puts live approval cards first, followed by a compact action history. Select an outcome chip or chart bar to filter history; click an action to see its verdict and evidence. History filters do not hide live approvals. Judge setup and protection modes are in Settings. See [RFC 005](rfc-005-blocking-safety.md).
 
 For frontend development, run the same Python service plus `npm run dev` in `frontend`, then open **http://127.0.0.1:5173**. Vite proxies `/api` to port 8000. API reference: **http://127.0.0.1:8000/docs**.
 
@@ -229,7 +231,7 @@ The live queue covers all connections, independently of history filters. Outcome
 
 ### Safety performance and deadlines
 
-To test routing, open **Safety → Settings → Debug**, enable **Debug mode**, and choose **Review**, **Allow**, or **Deny**. Debug is disabled by default; Review is the initial selection. Changes persist and apply to new assessments on all connections. Debug substitutes a local result for the judge without calling Anthropic. To test approval, use a connection with blocking evaluation enabled and issue a new harmless action. Shadow assessments remain advisory. Existing assessments retain their original configuration.
+To test routing, open **Safety → Settings → Debug**, enable **Debug mode**, and choose **Review**, **Allow**, or **Deny**. Debug is disabled by default; Review is the initial selection. Changes persist and apply to new assessments on all connections. Debug substitutes a local result for the judge without calling the judge provider. To test approval, use a connection with blocking evaluation enabled and issue a new harmless action. Shadow assessments remain advisory. Existing assessments retain their original configuration.
 
 Simulated decisions are marked **Debug** and excluded from production performance summaries. Hard-rule denials, incomplete-action safeguards, deadlines, and human approval checks remain enforced. Turn Debug mode off to resume normal judging.
 

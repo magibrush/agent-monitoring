@@ -51,3 +51,7 @@ Scripted tests validate pipeline behavior, not model accuracy. Live evaluations 
 [Lab validation](../lab/VALIDATION.md) records historical results and known failures. Rerun relevant checks on the release candidate, record its commit and environment, and do not present old test totals as current results.
 
 The [release-preparation verification record](release-preparation-verification.md) reports the local documentation-pass results and environment adjustments, separately from historical Lab measurements.
+
+## OpenAI support status
+
+OpenAI judge support is available but has not been tested with live API calls; Anthropic remains recommended. `backend/tests/test_openai_judge.py` checks mocked request/response handling, credential selection, redaction, incident analysis, error sanitization and fail-closed validation. Passing these offline tests does not establish live model compatibility or verdict quality.

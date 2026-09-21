@@ -1,4 +1,4 @@
-"""One Anthropic Haiku judge. No tool execution, redirects, or SDK retries."""
+"""One configured judge. No tool execution, redirects, or SDK retries."""
 import json
 import urllib.error
 import urllib.request
@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from backend.safety_policy import POLICY
+from backend.judge_provider import PROVIDER, make_request, normalize_response
 
 
 class Verdict(BaseModel):
@@ -84,15 +85,17 @@ def evaluate(job, key):
     if timeout <= 0:
         raise JudgeError("Automated evaluation budget exhausted.")
     body = request_body(job)
-    request = urllib.request.Request("https://api.anthropic.com/v1/messages", data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01"}, method="POST")
+    try:
+        request = make_request(body, key)
+    except ValueError:
+        raise JudgeError("Queued judge model does not match the configured provider.") from None
     diagnostics = {}
     try:
         with urllib.request.build_opener(NoRedirect).open(request, timeout=timeout) as response:
             raw = response.read(128 * 1024 + 1)
         if len(raw) > 128 * 1024:
             raise JudgeError("Judge response exceeded the size limit.")
-        document = json.loads(raw)
+        document = normalize_response(json.loads(raw))
         diagnostics = {"response_id": document.get("id"), "stop_reason": document.get("stop_reason"),
                        "usage": {k: v for k, v in document.get("usage", {}).items() if k in {"input_tokens", "output_tokens"} and isinstance(v, int)}}
         blocks = [b for b in document.get("content", []) if b.get("type") == "tool_use" and b.get("name") == "submit_verdict"]
@@ -110,9 +113,9 @@ def evaluate(job, key):
         return verdict, usage
     except urllib.error.HTTPError as exc:
         # Never expose response bodies, headers, or API keys in logs/storage.
-        raise JudgeError(f"Anthropic HTTP {exc.code}. Check credentials, quota, and model access.", exc.code in {408, 429, 500, 502, 503, 504, 529}) from None
+        raise JudgeError(f"{PROVIDER.title()} HTTP {exc.code}. Check credentials, quota, and model access.", exc.code in {408, 429, 500, 502, 503, 504, 529}) from None
     except (urllib.error.URLError, TimeoutError, OSError):
-        raise JudgeError("Anthropic request failed or timed out.", True) from None
+        raise JudgeError(f"{PROVIDER.title()} request failed or timed out.", True) from None
     except ValidationError as exc:
         diagnostics["validation_errors"] = [{"field": ".".join(str(p) for p in item["loc"]), "type": item["type"]} for item in exc.errors()]
         fields = ", ".join(f"{e['field']} ({e['type']})" for e in diagnostics["validation_errors"])

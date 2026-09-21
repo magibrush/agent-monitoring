@@ -121,6 +121,8 @@ def run(path):
     os.environ["DATABASE_URL"] = "sqlite:///" + (path / "relay.db").as_posix()
     os.environ["RELAY_HOOK_QUEUE"] = str(path / "queue")
     if config.mode == "scripted":
+        os.environ.pop("OPENAI_API_KEY", None)
+        os.environ["RELAY_OPENAI_KEY_FILE"] = str(path / "no-provider-key")
         os.environ.pop("ANTHROPIC_API_KEY", None)
         os.environ["RELAY_ANTHROPIC_KEY_FILE"] = str(path / "no-provider-key")
     from alembic import command
@@ -134,7 +136,7 @@ def run(path):
     assert Path(engine.url.database).resolve() == path / "relay.db"
     command.upgrade(Config(str(ROOT / "alembic.ini")), "head")
     if config.mode == "live" and not safety.read_key():
-        raise ValueError("No Anthropic key is configured. Add your key using Relay, or choose scripted mode.")
+        raise ValueError("No judge API key is configured. Add your key using Relay, or choose scripted mode.")
     if config.mode == "scripted":
         # Only this isolated subprocess is patched. Every evaluator is explicitly
         # supplied below, so the sentinel cannot reach a provider client.

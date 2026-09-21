@@ -67,12 +67,14 @@ def test_real_hook_processes_retry_and_review_rejection():
 
 def test_live_run_without_key_fails_before_submitting():
     env = dict(os.environ)
+    env.pop("OPENAI_API_KEY", None)
+    env["RELAY_OPENAI_KEY_FILE"] = str(ROOT / "data/lab/absent-test-key")
     env.pop("ANTHROPIC_API_KEY", None)
     env["RELAY_ANTHROPIC_KEY_FILE"] = str(ROOT / "data/lab/absent-test-key")
     result, report, _ = run_fixture({"mode": "live", "count": 1, "scenarios": ["ordinary-read"]}, env=env)
     assert result.returncode == 1
     assert report["status"] == "failed"
-    assert "No Anthropic key" in report["error"]
+    assert "No judge API key" in report["error"]
     assert not report["rows"]
 
 

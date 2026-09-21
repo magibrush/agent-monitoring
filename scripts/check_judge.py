@@ -34,10 +34,9 @@ def main():
                 raise SystemExit("Evaluation not found.")
             job = SimpleNamespace(**row._mapping)
             body = judge.request_body(job, strict=False)
-        request = urllib.request.Request("https://api.anthropic.com/v1/messages", data=json.dumps(body).encode(),
-            headers={"Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01"})
+        request = judge.make_request(body, key)
         with urllib.request.build_opener(judge.NoRedirect).open(request, timeout=25) as response:
-            document = json.loads(response.read(128 * 1024))
+            document = judge.normalize_response(json.loads(response.read(128 * 1024)))
         blocks = [b for b in document.get("content", []) if b.get("type") == "tool_use"]
         diagnostic = {"stop_reason": document.get("stop_reason"), "tool_blocks": len(blocks)}
         if blocks:

@@ -18,6 +18,8 @@ def environment(path, config):
     os.environ["DATABASE_URL"] = "sqlite:///" + (path / "relay.db").as_posix()
     os.environ["RELAY_HOOK_QUEUE"] = str(path / "queue")
     if config.mode == "scripted":
+        os.environ.pop("OPENAI_API_KEY", None)
+        os.environ["RELAY_OPENAI_KEY_FILE"] = str(path / "no-provider-key")
         os.environ.pop("ANTHROPIC_API_KEY", None)
         os.environ["RELAY_ANTHROPIC_KEY_FILE"] = str(path / "no-provider-key")
 

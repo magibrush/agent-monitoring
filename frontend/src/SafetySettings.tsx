@@ -7,6 +7,7 @@ import type { SafetyNotifications } from "./useSafetyNotifications";
 
 export type SafetyStatus = {
   model: string;
+  provider?: "anthropic" | "openai";
   key_configured: boolean;
   key_file: string;
   debug?: DebugConfig;
@@ -69,7 +70,9 @@ export function SafetySettings({ status, error, connections, notifications, clos
           <div className="settings-judge-heading"><div><strong>Judge</strong><p>{status?.model ?? (error ? "Status unavailable" : "Loading status...")}</p></div><span className={`settings-status ${status?.key_configured && status.workers.length ? "healthy" : ""}`}>{!status ? (error ? "Unavailable" : "Loading...") : !status.key_configured ? "API key needed" : !status.workers.length ? "Worker offline" : "Connected"}</span></div>
           <details className="settings-disclosure">
             <summary>Judge setup</summary>
-            <p>Place your Anthropic API key in this local file. The worker reads it automatically.</p>
+            <p>Anthropic is recommended. OpenAI support has not been tested with live API calls.</p>
+            <p>For OpenAI, set <code>RELAY_JUDGE_PROVIDER=openai</code> before starting Relay and its worker. Save the key in <code>.secrets/openai.key</code> or set <code>OPENAI_API_KEY</code>. Restart both processes after changing providers.</p>
+            <p>Place your {status?.provider === "openai" ? "OpenAI" : "Anthropic"} API key in this local file. The worker reads it automatically.</p>
             <code className="safety-path">{status?.key_file || "Key file path unavailable"}</code>
             <p>Start the worker with <code>scripts/start-worker.ps1</code>.</p>
           </details>
@@ -82,7 +85,7 @@ export function SafetySettings({ status, error, connections, notifications, clos
               <div><dt>Missing receipts</dt><dd>{performance.missing_receipts}</dd></div>
             </dl><p className="settings-footnote">Pause timing is based on {performance.automatic_pause.samples} receipts.{performance.truncated && " Showing the latest 10,000 requests."}</p></> : <p>Performance data is not available yet.</p>}
           </details>
-          <div className="settings-data-note"><strong>Data sharing</strong><p>Action arguments and limited conversation context are sent to Anthropic for evaluation. Secret redaction is limited.</p></div>
+          <div className="settings-data-note"><strong>Data sharing</strong><p>Action arguments and limited conversation context are sent to the configured judge provider for evaluation. Secret redaction is limited.</p></div>
         </div>
       </section>
       <SafetyDebug config={status?.debug} />

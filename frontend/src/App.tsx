@@ -258,7 +258,7 @@ export default function App() {
           <div className="local-note">
             <Database size={17} />
             <div>
-              Stored on this device<small>Judge context is sent to Anthropic.</small>
+              Stored on this device<small>Judge context is sent to the configured judge provider.</small>
             </div>
           </div>
           <div className="profile">
