@@ -23,7 +23,7 @@ test("blocking denial, safety chart filtering, evidence and mobile layout", asyn
     const card = page.locator(".safety-setting-row").filter({ hasText: "Safety test" });
     await page.getByRole("button", { name: "Configure protection for Safety test" }).click();
     await page.getByRole("radio", { name: /Block risky actions/ }).check();
-    await expect(page.getByRole("dialog")).toContainText("Denials, timeouts and unavailable evaluators block the action");
+    await expect(page.getByRole("dialog")).toContainText("Timeouts block");
     await page.getByRole("button", { name: "Enable live hooks", exact: true }).click();
     await expect(card).toContainText("Blocking configured");
     await page.getByRole("button", { name: "Close safety settings" }).click();

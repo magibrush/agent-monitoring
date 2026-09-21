@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { api, json, type Connection } from "./api";
 import { Modal } from "./ui";
+import { DecisionStatus } from "./DecisionStatus";
 import { ActionDetail, currentOutcome, type Action } from "./SafetyView";
 
 type IncidentStatus = "new" | "investigating" | "resolved";
@@ -483,7 +484,7 @@ function AttentionDetail({
         : finished
           ? { title: execution === "failed" ? "Action failed" : execution === "succeeded" ? "Action succeeded" : "Action completed", text: execution === "failed" ? "The agent reported an error while running this action." : "The agent reported that this action finished.", tone: execution === "failed" ? "uncertain" : "completed" }
           : receipt === "pass"
-            ? { title: "Allowed to continue", text: "Relay gave permission. No result has been recorded yet.", tone: "completed" }
+            ? { title: "Released", text: "Relay gave permission. No result has been recorded yet.", tone: "completed" }
             : event.gate?.status === "awaiting_review"
               ? { title: "Waiting for your approval", text: "Approve or deny this request in Safety.", tone: "uncertain" }
               : event.gate?.mode === "shadow"
@@ -492,7 +493,7 @@ function AttentionDetail({
     const source = event.assessment?.source === "policy" ? "Policy rule"
       : event.assessment?.source === "rules" ? "Built-in rule"
       : event.assessment?.source === "debug" ? "Test setting"
-      : analysis?.model === "scripted-demo" ? "Scripted demo" : "AI assessment";
+      : analysis?.model === "scripted-demo" ? "Scripted demo" : "Judge LLM";
     return (
       <li
         key={event.event_id}
@@ -526,12 +527,13 @@ function AttentionDetail({
             <p>{event.assessment.reason}</p>
           </section>
           <div className={`evidence-outcome ${outcome.tone}`} data-tour={!inPreview && event.assessment.recommendation === "review" ? "review-decision" : undefined}>
-            <strong>{outcome.title}</strong>
-            <p>{outcome.text}</p>
+            <div className="verdict-tile"><span>{source === "Judge LLM" ? "Judge LLM verdict" : `${source} verdict`}</span><DecisionStatus value={event.assessment.recommendation}>{event.assessment.recommendation === "allow" ? "Allow" : event.assessment.recommendation === "deny" ? "Block" : event.assessment.recommendation === "review" ? "Review" : "Unknown"}</DecisionStatus></div>
+            <div className="verdict-tile"><span>Recorded outcome</span><DecisionStatus value={receipt === "deny" && finished ? "review" : finished ? execution : receipt || (event.gate?.mode === "shadow" ? "shadow" : event.gate?.status)}>{outcome.title}</DecisionStatus></div>
           </div>
           <details className="evidence-decision-details">
             <summary>Decision details</summary>
             <dl>
+              {receipt === "deny" && finished && <div><dt>Conflicting records</dt><dd>{outcome.text}</dd></div>}
               <div><dt>Safety review</dt><dd>{event.assessment.recommendation === "deny" ? "Recommended stopping this action." : event.assessment.recommendation === "review" ? "Requested a person's approval before continuing." : event.assessment.recommendation === "allow" ? "Recommended allowing this action." : "No recommendation was recorded."}</dd></div>
               <div><dt>Relay response</dt><dd>{receipt === "deny" ? "Told the agent to stop this action." : receipt === "pass" ? "Gave the agent permission to continue." : event.gate?.mode === "shadow" ? "Observation only: Relay did not control permission for this action." : event.gate?.status === "awaiting_review" ? "Waiting for you to approve or deny the request in Safety." : "No response to the agent has been recorded."}</dd></div>
               <div><dt>Execution record</dt><dd>{execution === "failed" ? "The agent reported that the action failed." : execution === "succeeded" ? "The agent reported that the action succeeded." : execution === "completed" ? "The agent reported completion, without a success or failure status." : "No result was recorded. This does not prove whether the action ran."}</dd></div>

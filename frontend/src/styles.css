@@ -3328,6 +3328,45 @@ input.settings-switch { appearance:none; position:relative; display:inline-block
 .evidence-outcome.completed > strong { color:#28624f; }
 .evidence-outcome.uncertain > strong { color:#865916; }
 .evidence-outcome > p { margin:5px 0 0; font-size:12px; line-height:1.5; color:#526176; }
+.evidence-outcome { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.verdict-tile { padding:12px; border:1px solid #e1e6ef; border-radius:8px; background:#fafbfd; display:flex; flex-direction:column; align-items:flex-start; gap:8px; }
+.verdict-tile > span:first-child { color:#59677d; font-size:11px; font-weight:600; }
+.connection-stats { display:grid; grid-template-columns:1fr 1fr; border:1px solid #e1e6ef; border-radius:10px; background:#fafbfd; margin:18px 0; }
+.connection-stats > div { padding:14px; display:flex; flex-direction:column; gap:8px; min-width:0; }
+.connection-stats > div + div { border-left:1px solid #e1e6ef; }
+.connection-stats span { font-size:11px; color:#64748b; }
+.connection-stats strong { font-size:14px; color:#35425a; }
+.connection-stats > div:first-child strong { font-size:22px; }
+.connection-source-path { display:grid; gap:8px; margin:14px 0; padding:12px 14px; border:1px solid #e1e6ef; border-radius:8px; background:#fafbfd; font-size:12px; color:#59677d; }
+.connection-source-path > span { font-size:11px; font-weight:500; }
+.connection-source-path code { overflow-wrap:anywhere; min-width:0; color:#35425a; }
+.connection-hooks { padding:16px; border:1px solid #dce3ef; background:#f7f9fc; border-radius:10px; display:grid; gap:10px; }
+.connection-hooks-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.connection-hooks-heading > strong { display:flex; align-items:center; gap:8px; font-size:13px; }
+.connection-hook-mode { font-size:13px; font-weight:500; color:#35425a; }
+.connection-hooks small { color:#64748b; font-size:11px; }
+.connection-hooks > button { justify-self:start; }
+.connection-card .connection-actions { padding-top:16px; margin-top:16px; border-top:1px solid #e1e6ef; }
+.hook-current { display:flex; flex-wrap:wrap; gap:10px; align-items:center; font-size:12px; color:#59677d; }
+.hook-unsaved { background:#fff3e4; color:#8a5719; border-radius:5px; padding:4px 7px; font-size:11px; }
+.hook-modes { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.hook-modes label { flex-wrap:wrap; gap:8px; }
+.hook-modes label > span { flex-basis:100%; }
+.hook-modes label > svg { margin-left:auto; color:#64748b; }
+.hook-facts { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.hook-facts > span { display:inline-flex; gap:5px; align-items:center; background:#f3f5fa; border-radius:5px; padding:5px 8px; color:#59677d; font-size:11px; }
+.hook-next-steps { padding:12px 14px; border:1px solid #e1e6ef; border-radius:8px; margin:16px 0; font-size:12px; }
+.hook-next-steps > strong { color:#35425a; }
+.hook-next-steps ol { display:flex; flex-wrap:wrap; gap:12px; list-style:none; padding:0; margin:10px 0 0; }
+.hook-next-steps li { display:flex; gap:6px; align-items:center; color:#59677d; }
+.hook-next-steps li > span { display:grid; place-items:center; width:20px; height:20px; border-radius:50%; background:#e9eefb; color:#5269b6; }
+.hook-fact-grid { margin:12px 0; border:1px solid #e1e6ef; border-radius:8px; overflow:hidden; font-size:12px; }
+.hook-fact-grid > div { display:grid; grid-template-columns:minmax(100px,1fr) 2fr; gap:12px; padding:10px 12px; }
+.hook-fact-grid > div + div { border-top:1px solid #e1e6ef; }
+.hook-fact-grid dt { font-weight:500; color:#35425a; }
+.hook-fact-grid dd { margin:0; color:#59677d; line-height:1.5; }
+.hook-configuration .hook-config { max-height:200px; overflow:auto; padding:12px; border:1px solid #e1e6ef; border-radius:8px; background:#f7f9fc; font-size:11px; }
+@media(max-width:420px) { .hook-fact-grid > div { grid-template-columns:1fr; gap:4px; } .verdict-tile { padding:10px; } }
 .evidence-decision-details { margin:0 0 16px; font-size:12px; }
 .evidence-decision-details > summary { cursor:pointer; color:#526176; padding:6px 0; }
 .evidence-decision-details dl { margin:6px 0; padding:12px; border:1px solid #e1e6ef; border-radius:6px; }

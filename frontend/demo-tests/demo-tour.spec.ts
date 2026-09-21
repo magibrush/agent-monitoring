@@ -58,7 +58,7 @@ test("opening cited conversation exits the guided overlay", async ({ page }) => 
 });
 
 const outcomes = [
-  { name: "permission without a result", receipt: "pass", state: "requested", mode: "blocking", status: "released", title: "Allowed to continue" },
+  { name: "permission without a result", receipt: "pass", state: "requested", mode: "blocking", status: "released", title: "Released" },
   { name: "failed action", receipt: "pass", state: "failed", mode: "blocking", status: "released", title: "Action failed" },
   { name: "completed action", receipt: "pass", state: "completed", mode: "blocking", status: "released", title: "Action completed" },
   { name: "human approval", state: "requested", mode: "blocking", status: "awaiting_review", title: "Waiting for your approval" },
@@ -84,8 +84,8 @@ for (const scenario of outcomes) {
     await page.goto("/#safety?incident=demo-incident-upload");
     await page.locator(".incident-citations button").first().click();
     const preview = page.locator("#incident-evidence-preview");
-    await expect(preview.locator(".evidence-outcome > strong")).toHaveText(scenario.title);
-    await expect(preview.getByLabel("Safety assessment")).toContainText("AI assessment");
+    await expect(preview.locator(".verdict-tile").last().locator(".decision-status")).toHaveText(scenario.title);
+    await expect(preview.getByLabel("Safety assessment")).toContainText("Judge LLM");
     await preview.locator(".evidence-decision-details > summary").click();
     await expect(preview.getByText("Execution record", { exact: true })).toBeVisible();
     if (scenario.state === "requested") await expect(preview).toContainText("This does not prove whether the action ran.");

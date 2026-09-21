@@ -13,7 +13,7 @@ test("live observer setup, receipt, transcript correlation and disable", async (
   await page.getByRole("button", { name: /Connections/ }).click();
   const card = page.locator(".connection-card").filter({ hasText: "Live observation test" });
   await card.getByRole("button", { name: "Set up live hooks" }).click();
-  await expect(page.getByRole("dialog")).toContainText("Relay returns no permission decisions");
+  await expect(page.getByRole("dialog")).toContainText("Assess without blocking");
   await page.getByRole("button", { name: "Enable live hooks", exact: true }).click();
   await expect(card).toContainText("Waiting for first hook");
   async function deliver(phase: string) {
@@ -35,10 +35,21 @@ test("live observer setup, receipt, transcript correlation and disable", async (
   const sessions = await (await request.get(`/api/sessions${params}`)).json();
   await expect.poll(async () => (await (await request.get(`/api/sessions/${sessions.items[0].id}/events`)).json()).items[0].hook_state).toBe("completed");
   expect((await (await request.get(`/api/metrics${params}`)).json()).actions).toBe(1);
+  await page.screenshot({ path: "../data/qa/connections-compact.png" });
   await card.getByRole("button", { name: "Manage hooks" }).click();
   await expect(page.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  await page.getByRole("radio", { name: /Block risky actions/ }).check();
+  await expect(page.getByRole("dialog")).toContainText("Saved: Observe only");
+  await expect(page.getByRole("dialog").getByRole("status")).toHaveText("Unsaved changes");
+  await page.screenshot({ path: "../data/qa/hooks-compact-desktop.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: "../data/qa/hooks-mobile.png" });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.getByText("Behavior & coverage", { exact: true }).click();
+  await expect(page.locator(".hook-configuration")).not.toHaveAttribute("open");
+  await page.screenshot({ path: "../data/qa/hooks-details-mobile.png" });
+  await page.getByText("Configuration", { exact: true }).click();
+  await expect(page.locator(".hook-config")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await page.getByRole("button", { name: "Remove hooks" }).click();
   await expect(card).toContainText("Not installed");
