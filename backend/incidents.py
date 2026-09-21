@@ -103,11 +103,9 @@ def classify(job, event, session, db=None):
         title = {"deadline": "Requests timing out", "capacity": "Review capacity reached", "evaluation": "Evaluations failing"}[family]
         reason = "Opened after three requests on this connection had the same kind of failure within ten minutes. Later matching failures update this item."
     elif source == "judge" and (suspicious or judge_review or denied):
-        triage = rules.get("triage") or {}
-        categories = sorted(str(f.get("category", "")) for f in triage.get("signals", []) if isinstance(f, dict))
-        key = [session.connection_id, session.id, "judge-concern", categories or [event.tool_name]]
-        title = f"{event.tool_name or 'Action'} flagged for attention"
-        reason = "Grouped from the same conversation and the same kind of judge concern. The timeline includes the surrounding task and recorded outcomes."
+        key = [session.connection_id, session.id, "judge-concern"]
+        title = "Conversation flagged for attention"
+        reason = "Grouped from the same conversation across tools and judge concerns. The timeline includes the surrounding task and recorded outcomes."
     elif source == "policy":
         winner = recorded_rule(db, job) if db is not None else None
         key = [session.connection_id, "policy", winner["id"] if winner else sorted(signal)]

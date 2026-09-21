@@ -351,9 +351,9 @@ def test_suspicious_allow_is_immediate_low_severity_and_receipt_is_separate(stor
     assert detail["timeline"]["events"] and detail["analysis"]["status"] == "unavailable"
 
 
-def test_judge_reviews_high_floor_severity_order_and_threat_categories(store):
+def test_judge_reviews_high_floor_severity_order_across_conversations(store):
     seed(store)
-    low, _ = job(store, source="judge", decision="allow", suspicious=True, severity="low", risk="low")
+    low, _ = job(store, source="judge", session="other-session", decision="allow", suspicious=True, severity="low", risk="low")
     high, _ = job(store, source="judge", decision="review", status="awaiting_review", severity="low", risk="low")
     with store() as db:
         db.get(SafetyEvaluation, low).rules = {"triage": {"signals": [{"category": "history_rewrite"}]}}
@@ -363,3 +363,32 @@ def test_judge_reviews_high_floor_severity_order_and_threat_categories(store):
     rows = client().get(BASE).json()["items"]
     assert len(rows) == 2 and [r["severity"] for r in rows] == ["high", "low"]
     assert client().get(BASE + "?severity=low").json()["total"] == 1
+
+
+def test_judge_concerns_group_across_tools_and_categories_by_conversation(store):
+    seed(store)
+    ids = []
+    for tool, category, severity in (("Bash", None, "high"), ("Read", None, "high"),
+                                     ("Glob", None, "critical"), ("Write", "credential_access", "high"),
+                                     ("Bash", "history_rewrite", "high")):
+        evaluation, event = job(store, source="judge", suspicious=True, severity=severity)
+        with store() as db:
+            db.get(Event, event).tool_name = tool
+            row = db.get(SafetyEvaluation, evaluation)
+            action = json.loads(row.snapshot["action"])
+            action["tool_name"] = tool
+            row.snapshot = {**row.snapshot, "action": json.dumps(action)}
+            row.rules = {"triage": {"signals": [{"category": category}] if category else []}}
+            db.commit()
+        ids.append(evaluation)
+        scan(store)
+    rows = client().get(BASE).json()["items"]
+    assert len(rows) == 1
+    assert rows[0]["action_count"] == 5 and rows[0]["severity"] == "critical"
+    detail = client().get(BASE + "/" + rows[0]["id"]).json()
+    assert {a["evaluation"]["id"] for a in detail["actions"]} == set(ids)
+    job(store, source="judge", session="other-session")
+    job(store, source="judge", session="other-connection")
+    scan(store)
+    assert client().get(BASE).json()["total"] == 3
+    assert scan(store) == 0
