@@ -280,6 +280,10 @@ class SafetyAttempt(Base):
 
 
 def make_engine(url=None):
+    from backend import runtime
+    if url is None and runtime.DEMO:
+        runtime.DEMO_DB.parent.mkdir(parents=True, exist_ok=True)
+        url = runtime.demo_database_url()
     url = url or os.getenv("DATABASE_URL", "sqlite:///" + (ROOT / "data/monitor.db").as_posix())
     if url.startswith("sqlite"):
         (ROOT / "data").mkdir(exist_ok=True)

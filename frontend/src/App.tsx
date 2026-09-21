@@ -22,6 +22,8 @@ import { SafetyWorkspace } from "./SafetyView";
 import { Timeline } from "./Timeline";
 import { FIT, TimeRange, rangeQuery, type Range } from "./TimeRange";
 import { ACTIONS, Conversation, Highlight } from "./Conversation";
+import { DemoBanner } from "./DemoBanner";
+import { DemoConnections } from "./DemoConnections";
 
 type Page = "Overview" | "Safety" | "Explorer" | "Connections";
 const routePage = (): Page => location.hash.startsWith("#safety") ? "Safety" : location.hash.startsWith("#explorer") ? "Explorer" : location.hash === "#connections" ? "Connections" : "Overview";
@@ -100,8 +102,9 @@ export default function App() {
   });
   const health = useQuery({
     queryKey: ["health"],
-    queryFn: () => api<{ status: string }>("/health"),
+    queryFn: () => api<{ status: string; demo?: boolean }>("/health"),
   });
+  const demo = health.data?.demo === true;
   useEffect(() => {
     const timer = setTimeout(() => setQuery(search), 250);
     return () => clearTimeout(timer);
@@ -220,12 +223,12 @@ export default function App() {
           <span className="brand-symbol">
             <Activity size={21} />
           </span>
-          relay<span className="version">LOCAL</span>
+          relay<span className="version">{demo ? "DEMO" : "LOCAL"}</span>
         </a>
         <div className="workspace">
           <span className="workspace-icon">M</span>
           <div>
-            My workspace<small>Personal environment</small>
+            {demo ? "Trailhead sample" : "My workspace"}<small>{demo ? "Fictional project" : "Personal environment"}</small>
           </div>
         </div>
         <div className="nav-label">WORKSPACE</div>
@@ -240,6 +243,7 @@ export default function App() {
           ).map(({ name, icon: Icon }) => (
             <button
               key={name}
+              data-tour-nav={name.toLowerCase()}
               className={`nav-item ${page === name ? "active" : ""}`}
               onClick={() => changePage(name)}
             >
@@ -258,7 +262,7 @@ export default function App() {
           <div className="local-note">
             <Database size={17} />
             <div>
-              Stored on this device<small>Judge context is sent to Anthropic.</small>
+              Stored on this device<small>{demo ? "Synthetic data · no model calls" : "Judge context is sent to Anthropic."}</small>
             </div>
           </div>
           <div className="profile">
@@ -287,15 +291,15 @@ export default function App() {
             <span className="top-avatar">M</span>
           </div>
         </header>
+        {demo && <DemoBanner onStart={() => { clearFilters(); changePage("Overview"); }} />}
         <main className={page === "Overview" ? "overview-page" : ""}>
           <div className="page-heading">
             <div>
               <h1>
                 {page}
               </h1>
-              {page === "Safety" && <p className="safety-subtitle">Review tool decisions and manage protection.</p>}
             </div>
-            {page === "Connections" && <button className="primary" onClick={() => setAdding(true)}>
+            {page === "Connections" && !demo && <button className="primary" onClick={() => setAdding(true)}>
               <Plus size={16} />
               Add connection
             </button>}
@@ -319,6 +323,7 @@ export default function App() {
             </div>
           )}
           {page === "Connections" ? (
+            demo ? <DemoConnections items={connections.data ?? []} /> :
             <Connections
               items={connections.data ?? []}
               refresh={refresh}
@@ -468,7 +473,7 @@ export default function App() {
               </div>}
                 {page === "Overview" && (
                   <>
-                    <div className="stats">
+                    <div className="stats" data-tour="overview">
                       {[
                         {
                           label: "Sessions",
@@ -526,7 +531,7 @@ export default function App() {
                   setColorBy={chartKind === "sessions" ? setSessionColorBy : setChartColorBy}
                 />
               </div>}
-              {page === "Safety" && <SafetyWorkspace notifications={notifications} connections={connections.data ?? []} refresh={refresh} notify={setNotice} />}
+              {page === "Safety" && <SafetyWorkspace demo={demo} notifications={notifications} connections={connections.data ?? []} refresh={refresh} notify={setNotice} />}
               {page !== "Safety" && <div className={page === "Explorer" ? "explorer-layout" : ""}>
                 <section className="panel session-panel">
                   <div className="panel-heading">
@@ -575,6 +580,7 @@ export default function App() {
                             <td>
                               <button
                                 className="session-link"
+                                data-tour-session={session.id}
                                 onClick={() => openSession(session)}
                               >
                                 <Provider name={session.provider} />

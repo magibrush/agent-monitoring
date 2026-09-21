@@ -31,6 +31,9 @@ def key_path():
 
 
 def read_key():
+    from backend import runtime
+    if runtime.DEMO:
+        return None
     # Read afresh so filling the file does not require a worker restart.
     try:
         value = os.getenv("ANTHROPIC_API_KEY") or key_path().read_text(encoding="utf-8-sig").strip()

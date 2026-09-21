@@ -13,6 +13,7 @@ import {
 import { api, json, type Connection } from "./api";
 import { Modal } from "./ui";
 import { ActionDetail, currentOutcome, type Action } from "./SafetyView";
+import { DecisionStatus } from "./DecisionStatus";
 
 type IncidentStatus = "new" | "investigating" | "resolved";
 type Incident = {
@@ -90,6 +91,7 @@ type Evidence = {
 };
 type Analysis = {
   status: string;
+  model?: string;
   stale: boolean;
   analyzed_at?: string;
   error?: string;
@@ -267,6 +269,7 @@ export function Incidents(props: AttentionProps) {
               <div className="incident-list-card" key={row.id}>
                 <button
                   className="safety-action-row attention-row"
+                  data-tour-incident={row.id}
                   aria-pressed={props.selected === row.id}
                   onClick={() => props.open(row.id)}
                 >
@@ -479,11 +482,12 @@ function AttentionDetail({
       <li
         key={event.event_id}
         id={`incident-event-${event.event_id}`}
+        data-tour={event.assessment?.recommendation === "review" ? "review-request" : undefined}
         tabIndex={-1}
         className={`${event.flagged ? "flagged" : ""} ${highlight === event.event_id ? "highlighted" : ""}`}
       >
         <div className="incident-event-heading">
-          <span className="evidence-label">Evidence {event.event_id}</span>
+          {citedIds.has(event.event_id) ? <span className="evidence-label">Evidence {event.event_id}</span> : <span className="context-record-label">{event.flagged ? "Flagged record" : "Context"}</span>}
           <strong>
             {event.kind === "tool_call"
               ? "Tool request"
@@ -519,14 +523,14 @@ function AttentionDetail({
           </div>
         )}
         {event.assessment && (
-          <div className="incident-event-outcome">
-            <span>
+          <div className="incident-event-outcome" data-tour={event.assessment.recommendation === "review" ? "review-decision" : undefined}>
+            <span className="incident-outcome-stage">
               {event.assessment.source === "policy"
                 ? "Policy"
                 : event.assessment.source === "rules"
                   ? "Built-in rules"
                   : "Judge"}
-              :{" "}
+              {" "}<DecisionStatus value={event.assessment.recommendation}>
               {event.assessment.recommendation === "allow"
                 ? "allow"
                 : event.assessment.recommendation === "review"
@@ -534,9 +538,9 @@ function AttentionDetail({
                   : event.assessment.recommendation === "deny"
                     ? "block recommended"
                     : "no verdict"}
-              {event.assessment.suspicious ? ", flagged" : ""}
+              </DecisionStatus>
             </span>
-            <span>
+            <DecisionStatus value={event.gate?.mode === "shadow" ? "shadow" : event.gate?.returned_at ? event.gate.receipt_decision : event.gate?.status === "awaiting_review" ? "review" : undefined}>
               {event.gate?.mode === "shadow"
                 ? "Shadow assessment · did not hold this request"
                 : event.gate?.returned_at &&
@@ -548,8 +552,8 @@ function AttentionDetail({
                     : event.gate?.status === "awaiting_review"
                       ? "Waiting for approval"
                       : "No release receipt"}
-            </span>
-            <span>
+            </DecisionStatus>
+            <DecisionStatus value={event.execution?.hook_state}>
               Execution:{" "}
               {(
                 {
@@ -559,7 +563,7 @@ function AttentionDetail({
                   requested: "not confirmed",
                 } as Record<string, string>
               )[event.execution?.hook_state || ""] || "not confirmed"}
-            </span>
+            </DecisionStatus>
           </div>
         )}
         <a
@@ -577,7 +581,7 @@ function AttentionDetail({
       className="attention-detail inspection-detail"
       aria-label="Incident details"
     >
-      <button className="text-button" onClick={() => open(null)}>
+      <button className="text-button" data-tour="incident-back" onClick={() => open(null)}>
         <ArrowLeft size={14} />
         Back to incidents
       </button>
@@ -619,20 +623,19 @@ function AttentionDetail({
               {row.allowed_flagged === 1
                 ? "a request"
                 : `${row.allowed_flagged} requests`}{" "}
-              while flagging a concern. A release receipt confirms permission to
-              proceed, not successful execution.
+              while flagging a concern.
             </p>
           )}
           {row.resurfaced && row.status !== "resolved" && (
             <p className="policy-feedback">{row.resurfaced}</p>
           )}
-          <div className="incident-analysis">
+          <div className="incident-analysis" data-tour="incident-analysis">
             <div className="incident-section-heading">
               <h3>
                 <Sparkles size={15} />
                 What happened
               </h3>
-              <small>Haiku analysis</small>
+              <small>{analysis?.model === "scripted-demo" ? "Scripted demo analysis" : "Haiku analysis"}</small>
             </div>
             {ready ? (
               <>
@@ -659,18 +662,13 @@ function AttentionDetail({
                         {citations(recommendation.evidence_ids)}
                       </div>
                     ))}
-                    <small>
-                      Suggestions only. Relay has not changed rules or taken
-                      these actions.
-                    </small>
                   </div>
                 )}
                 <small className="attention-meta">
                   Updated{" "}
                   {analysis?.analyzed_at
                     ? date(analysis.analyzed_at)
-                    : "recently"}{" "}
-                  · Based on the cited records
+                    : "recently"}
                 </small>
               </>
             ) : (
@@ -720,10 +718,6 @@ function AttentionDetail({
               {row.session_count === 1 ? "session" : "sessions"}
             </small>
           </div>
-          <p className="safety-muted">
-            Flagged requests and cited evidence stay visible. Expand surrounding
-            records for the rest of the conversation.
-          </p>
           <ol className="incident-conversation">
             {timelineParts.map((part) =>
               part.context ? (
@@ -763,11 +757,12 @@ function AttentionDetail({
             className="incident-technical"
             open={selected !== null || undefined}
           >
-            <summary>Request details</summary>
+            <summary data-tour="request-details">Request details</summary>
             {row.actions.map((action) => (
               <div className="attention-evidence" key={action.link_id}>
                 <button
                   className="attention-evidence-toggle"
+                  data-tour="action-open"
                   aria-expanded={selected === action.event_id}
                   onClick={() =>
                     setSelected(

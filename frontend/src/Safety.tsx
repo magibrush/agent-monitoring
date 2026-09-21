@@ -42,7 +42,7 @@ export function SafetyVerdict({ evaluation: e }: { evaluation: SafetyEvaluation 
   }
   return <div className={`safety-verdict ${decision === "deny" || e.gate?.decision === "deny" ? "safety-danger" : ""}`}>
     <strong>{label}</strong>
-    <span className="safety-muted">{e.gate ? ` · Gate returned ${e.gate.decision}; execution outcome is recorded separately` : " · No gate decision recorded"}</span>
+    <span className="safety-muted">{e.gate ? ` · Gate returned ${e.gate.decision}` : " · No gate decision recorded"}</span>
     {e.result && <p>{e.result.reason}</p>}
     {e.result && <p className="safety-muted">Risk: {e.result.risk} · Recommendation: {e.result.recommendation}</p>}
     {e.human_decision && <p>Human decision: {e.human_decision === "approve" ? "Approved" : "Denied"} at {new Date(e.reviewed_at!).toLocaleString()}. Judge recommendation is preserved.</p>}
@@ -92,7 +92,7 @@ function HumanReviewControls({ evaluation: e }: { evaluation: SafetyEvaluation }
   }
   return <section className="human-review-controls" aria-label="Human approval">
     <strong>{remaining > 0 ? `${remaining}s remaining to decide` : "Approval window expired"}</strong>
-    <p>Approval releases only this tool request to the provider's normal permissions. It does not approve future actions.</p>
+    <p>Approval applies to this tool request.</p>
     {details.data && <><p className="safety-muted">Assessed action (secrets may be redacted):</p><pre className="hook-config">{details.data.snapshot.action}</pre>{details.data.snapshot.action_truncated && <p>Action was truncated. Deny and request a smaller, inspectable action.</p>}</>}
     {details.error && <p className="error">{details.error.message}</p>}
     <div className="safety-counts"><button className="primary" disabled={busy || !remaining || !details.data || details.data.snapshot.action_truncated} onClick={() => decide("approve")}>Approve</button><button className="secondary" disabled={busy || !remaining} onClick={() => decide("deny")}>Deny</button></div>

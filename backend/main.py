@@ -16,6 +16,7 @@ from backend.connectors import sync_connection, inspect_source, source_root
 from backend.providers import PROVIDERS, default_path
 from backend.db import ChatSession, Checkpoint, Event, HookObservation, Connection, SafetyEvaluation, SafetyAttempt, ROOT, SessionLocal, now
 from backend import hooks
+from backend import runtime
 
 lock = threading.RLock()
 hook_lock = threading.RLock()
@@ -23,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 
 def synchronize(connection_id=None):
+    if runtime.DEMO:
+        return
     with lock, SessionLocal() as db:
         query = select(Connection).where(Connection.provider.in_(PROVIDERS), Connection.enabled.is_(True))
         if connection_id:
@@ -47,6 +50,9 @@ def synchronize(connection_id=None):
 
 @asynccontextmanager
 async def lifespan(app):
+    if runtime.DEMO:
+        yield
+        return
     async def watch_hooks():
         while True:
             try:
@@ -80,6 +86,8 @@ async def lifespan(app):
 
 
 def synchronize_hooks():
+    if runtime.DEMO:
+        return
     with hook_lock, SessionLocal() as db:
         from backend.blocking import dispatch
         dispatch(db)
@@ -108,6 +116,10 @@ async def local_only(request: Request, call_next):
         return JSONResponse({"detail": "Invalid content length."}, status_code=400)
     if content_length > 1024 * 1024:
         return JSONResponse({"detail": "Request exceeds 1 MB."}, status_code=413)
+    if runtime.DEMO and request.url.path.startswith("/api/"):
+        from backend.demo import permitted_request
+        if not permitted_request(request.method, request.url.path):
+            return JSONResponse({"detail": "This is the synthetic demo. Connections, hooks, policies, and live evaluations are disabled. You can explore evidence, add incident notes, and resolve sample incidents."}, status_code=403)
     return await call_next(request)
 
 
@@ -119,7 +131,18 @@ def serialize(model):
 def health():
     with SessionLocal() as db:
         db.execute(select(Connection.id).limit(1))
-    return {"status": "ok", "mode": "per_connection", "poll_seconds": 3, "hook_poll_seconds": 0.1}
+    return {"status": "ok", "mode": "demo" if runtime.DEMO else "per_connection", "demo": runtime.DEMO, "poll_seconds": 3, "hook_poll_seconds": 0.1}
+
+
+@app.post("/api/demo/reset")
+def reset_demo():
+    if not runtime.DEMO:
+        raise HTTPException(404, "Demo mode is not enabled.")
+    from backend.demo import seed
+    from backend.incidents import lock as incident_lock
+    with lock, incident_lock, SessionLocal() as db:
+        seed(db)
+    return {"reset": True}
 
 
 @app.get("/api/connections")
@@ -131,6 +154,8 @@ def connections():
 
 @app.get("/api/config")
 def config():
+    if runtime.DEMO:
+        return {"codex_path": "", "codex_available": False, "providers": [], "sources": []}
     root = default_path("codex")
     candidates = [("codex", root), ("codex", Path.home() / ".codex" / "sessions")]
     candidates += [(adapter, path.parent / "archived_sessions") for adapter, path in list(candidates)]

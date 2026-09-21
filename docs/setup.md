@@ -1,5 +1,7 @@
 # Setup and troubleshooting
 
+Want to explore first? The [sample dashboard demo](demo.md#the-three-minute-tour) needs no agent or API key and uses isolated storage. The instructions below connect Relay to your own agent activity.
+
 ## Prerequisites
 
 Relay is currently documented for Windows and PowerShell. Other operating systems are not claimed as verified release targets. Commands below start in the repository root.
