@@ -24,6 +24,7 @@ import { FIT, TimeRange, rangeQuery, type Range } from "./TimeRange";
 import { ACTIONS, Conversation, Highlight } from "./Conversation";
 
 type Page = "Overview" | "Safety" | "Explorer" | "Connections";
+const routePage = (): Page => location.hash.startsWith("#safety") ? "Safety" : location.hash.startsWith("#explorer") ? "Explorer" : location.hash === "#connections" ? "Connections" : "Overview";
 const number = (n = 0) => Intl.NumberFormat().format(n);
 
 export default function App() {
@@ -32,7 +33,7 @@ export default function App() {
   const [chartRange, setChartRange] = useState<Metrics["viewport"] | null>(null);
   const [sessionColorBy, setSessionColorBy] = useState("activity");
   const [chartKind, setChartKind] = useState<"sessions" | "messages" | "actions">("actions");
-  const [page, setPage] = useState<Page>(location.hash.startsWith("#safety") ? "Safety" : "Overview"),
+  const [page, setPage] = useState<Page>(routePage),
     [chartColorBy, setChartColorBy] = useState("activity"),
     [sessionType, setSessionType] = useState(""),
     [connection, setConnection] = useState(""),
@@ -64,21 +65,25 @@ export default function App() {
   }, []);
   useEffect(() => {
     const navigate = () => {
-      if (location.hash.startsWith("#safety")) {
-        setPage("Safety");
+      const next = routePage();
+      setPage(next);
+      if (next === "Safety") {
         const args = new URLSearchParams(location.hash.split("?")[1]);
         if (args.get("message")) setNotice(args.get("message")!);
       }
-      if (location.hash.startsWith("#explorer?")) {
+      if (next === "Explorer") {
         const hash = location.hash, args = new URLSearchParams(hash.split("?")[1]), id = args.get("session");
+        setOpened(null);
+        setDetailKind(args.get("kind") === "tool_call" ? "tool_call" : args.get("kind") === "message" ? "message" : "");
         if (!id) return;
+        setRange(FIT); setChartRange(null); setSearch(""); setQuery(""); setAction(""); setTool("");
         void Promise.all([api<{ session: Session & { connection_id: string } }>(`/sessions/${encodeURIComponent(id)}/events?limit=1`), api<Connection[]>("/connections")]).then(([data, sources]) => {
           if (location.hash !== hash) return;
           const source = sources.find(c => c.id === data.session.connection_id);
-          setOpened({ ...data.session, messages: 0, actions: 0, provider: source?.provider ?? "", connection_name: source?.name ?? "", match: { kind: "tool_call", text: "", event_id: Number(args.get("event")) || null } });
-          setRange(FIT); setSearch(""); setQuery(""); setAction(""); setTool(""); setDetailKind(""); setPage("Explorer");
-        }).catch(() => setNotice("Could not open this conversation. It may have been removed."));
+          setOpened({ ...data.session, messages: data.session.messages ?? 0, actions: data.session.actions ?? 0, provider: source?.provider ?? data.session.provider ?? "", connection_name: source?.name ?? data.session.connection_name ?? "", match: { kind: "tool_call", text: "", event_id: Number(args.get("event")) || null } });
+        }).catch(() => { if (location.hash === hash) setNotice("Could not open this conversation. It may have been removed."); });
       }
+
     };
     const message = (event: MessageEvent) => {
       if (event.data?.type === "open-review") { location.hash = event.data.hash; navigate(); }
@@ -104,7 +109,7 @@ export default function App() {
   useEffect(() => {
     setChartRange(null);
     setOffset(0);
-    setOpened(null);
+    if (opened) closeSession();
   }, [
     connection,
     range,
@@ -156,7 +161,7 @@ export default function App() {
     setSessionType("");
     setSort("recent");
     setOffset(0);
-    setOpened(null);
+    closeSession();
     setRange(FIT);
     setChartRange(null);
     setSearch("");
@@ -167,11 +172,24 @@ export default function App() {
     setMode("words");
     setScope("messages");
   }
+  function updateRoute(url: string, replace = false) {
+    if (location.hash === url) return;
+    history[replace ? "replaceState" : "pushState"](null, "", url);
+  }
+  function closeSession() {
+    setOpened(null);
+    if (location.hash.startsWith("#explorer")) updateRoute("#explorer", true);
+  }
   function changePage(next: Page) {
     setPage(next);
-    history.replaceState(null, "", next === "Safety" ? "#safety" : location.pathname);
+    if (next === "Explorer") setOpened(null);
+    updateRoute(next === "Overview" ? "#" : `#${next.toLowerCase()}`);
   }
   function openSession(session: Session, kind = "") {
+    const args = new URLSearchParams({ session: session.id });
+    if (kind) args.set("kind", kind);
+    if (session.match?.event_id) args.set("event", String(session.match.event_id));
+    updateRoute(`#explorer?${args}`);
     setPage("Explorer");
     setOpened(session);
     setDetailKind(kind);
@@ -542,8 +560,7 @@ export default function App() {
                           )}
                           <th className="number mobile-secondary">MESSAGES</th>
                           <th className="number">ACTIONS</th>
-                          <th className="number">INPUT TOKENS</th>
-                          <th className="number">OUTPUT TOKENS</th>
+                          {page === "Overview" && <><th className="number">INPUT TOKENS</th><th className="number">OUTPUT TOKENS</th></>}
                           {page === "Overview" && (
                             <th className="mobile-secondary">LAST ACTIVITY</th>
                           )}
@@ -629,8 +646,10 @@ export default function App() {
                                 {number(session.actions)}
                               </button>
                             </td>
+                            {page === "Overview" && <>
                             <td className="number" title="Reported input tokens, including cached input, in the selected time range">{session.input_tokens == null ? "—" : `${session.tokens_partial ? "≥" : ""}${number(session.input_tokens)}`}</td>
                             <td className="number" title="Reported output tokens in the selected time range">{session.output_tokens == null ? "—" : `${session.tokens_partial ? "≥" : ""}${number(session.output_tokens)}`}</td>
+                            </>}
                             {page === "Overview" && (
                               <td className="time-cell mobile-secondary">
                                 {new Date(session.updated_at).toLocaleString(
@@ -706,7 +725,7 @@ export default function App() {
                   <section className="panel explorer-detail">
                     {opened ? (
                       <Conversation
-                        key={opened.id + filterKey + detailKind}
+                        key={opened.id + filterKey + detailKind + (opened.match?.event_id ?? "")}
                         session={opened}
                         params={filterKey}
                         initialKind={detailKind}

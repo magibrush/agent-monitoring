@@ -96,7 +96,7 @@ export function Modal({
     const focusable = () =>
       Array.from(
         root.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input, select, summary, a[href], [tabindex="0"]',
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, a[href], [tabindex="0"]',
         ),
       ).filter((element) => element.getClientRects().length > 0);
     focusable()[0]?.focus();

@@ -93,6 +93,11 @@ export function Conversation({
               : "Local transcript"}
           </p>
         </div>
+        <dl className="conversation-token-usage" aria-label="Session token usage" title="Reported usage in the selected time range; input includes cached tokens.">
+          <div><dt>Input tokens</dt><dd>{session.input_tokens == null ? "—" : `${session.tokens_partial ? "≥" : ""}${session.input_tokens.toLocaleString()}`}</dd></div>
+          <div><dt>Output tokens</dt><dd>{session.output_tokens == null ? "—" : `${session.tokens_partial ? "≥" : ""}${session.output_tokens.toLocaleString()}`}</dd></div>
+          {session.tokens_partial && <small>Partial usage</small>}
+        </dl>
       </div>
       <div className="conversation-toolbar">
         <label className="search">

@@ -108,6 +108,12 @@ test("automatic flagged allowance explains the conversation, outcome and cited n
     await card
       .getByRole("button", { name: "Dismiss incident", exact: true })
       .click();
+    const warning = page.getByRole("dialog", { name: "Dismiss this incident?" });
+    await expect(warning).toContainText("Its evidence is kept");
+    await warning.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(card).toBeVisible();
+    await card.getByRole("button", { name: "Dismiss incident", exact: true }).click();
+    await warning.getByRole("button", { name: "Dismiss incident", exact: true }).click();
     await expect(card).toHaveCount(0);
     await page.getByLabel("Attention status").selectOption("resolved");
     await expect(card).toHaveCount(1);
@@ -273,6 +279,7 @@ test("a failed list dismissal keeps the incident available and reports the error
       .locator(".incident-list-card")
       .filter({ hasText: "Allowed by the judge, flagged" });
     await card.getByRole("button", { name: "Dismiss incident" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Dismiss incident" }).click();
     await expect(page.getByRole("alert")).toContainText(
       "This incident changed",
     );
