@@ -30,7 +30,7 @@ Connect Codex Desktop, Codex CLI, or Claude Code. These demo sources stay paused
 
 ## Launch options
 
-Run from the repository root:
+Run from the repository root. Windows (PowerShell):
 
 ```powershell
 # Choose another port and skip opening the browser.
@@ -40,12 +40,22 @@ powershell -ExecutionPolicy Bypass -File scripts/demo.ps1 -Port 8002 -NoBrowser
 data/demo/venv/Scripts/python.exe -m backend.demo
 ```
 
+Linux (Bash):
+
+```bash
+# Choose another port and skip opening the browser.
+bash scripts/demo.sh --port 8002 --no-browser
+
+# Restart without reinstalling or rebuilding.
+data/demo/venv/bin/python -m backend.demo
+```
+
 Ctrl+C stops the server. Every launch and **Reset demo** replaces `data/demo/monitor.db`. The demo ignores `DATABASE_URL` and keeps its Python environment in `data/demo/venv`. Run only one demo server or demo browser suite per checkout: they share that database.
 
 | Problem | Fix |
 | --- | --- |
-| Missing or old runtime | Install uv, Node 22.12+, and npm 10+; reopen PowerShell. |
-| Port occupied | Stop the other demo or choose `-Port 8002`. |
+| Missing or old runtime | Install uv, Node 22.12+, and npm 10+; reopen your terminal. |
+| Port occupied | Stop the other demo or choose `-Port 8002` (PowerShell) / `--port 8002` (Bash). |
 | Dependency download failed | Check internet access and rerun the launcher. |
 
 For your own transcripts, stop the demo and follow [setup](setup.md). To test synthetic requests through the actual decision pipeline, use [Relay Lab](../lab/README.md).

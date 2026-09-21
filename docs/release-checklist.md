@@ -1,11 +1,11 @@
 # Release checklist
 
-The demo, screenshots, guides, and Windows CI workflow are in place. [Local verification](release-preparation-verification.md) records development checks; it is not release certification.
+The demo, screenshots, guides, and Windows/Linux CI workflow are in place. [Local verification](release-preparation-verification.md) records development checks; it is not release certification.
 
 ## Before tagging
 
 - [ ] Commit the intended source changes.
-- [ ] Follow [setup](setup.md) and the [demo](../README.md#run-the-sample-demo) on a clean Windows environment with standard runtimes.
+- [ ] Follow [setup](setup.md) and the [demo](../README.md#run-the-sample-demo) on clean Windows and Linux environments with standard runtimes.
 - [ ] Run [all checks](testing.md) on the release commit and inspect remote CI.
 - [ ] Review tracked files and Git history for secrets/private data.
 - [ ] Choose a license and add its text.

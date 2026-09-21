@@ -15,10 +15,18 @@
 
 ## Run the sample demo
 
-On **Windows with PowerShell**, install [uv](https://docs.astral.sh/uv/) and [Node.js 22.12+ with npm 10+](https://nodejs.org/). Clone or download this repository, open PowerShell in its folder, and run:
+On **Windows (PowerShell)** or **Linux (Bash)**, install [uv](https://docs.astral.sh/uv/) and [Node.js 22.12+ with npm 10+](https://nodejs.org/). Clone or download this repository and open a terminal in its folder.
+
+Windows:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/demo.ps1
+```
+
+Linux:
+
+```bash
+bash scripts/demo.sh
 ```
 
 The launcher installs dependencies, builds the dashboard, and opens **http://127.0.0.1:8001**. The first run needs internet access; Python 3.11 is installed through uv if needed.
@@ -35,6 +43,6 @@ Everything is synthetic. The demo executes no scenario commands, reads no person
 
 [Setup](docs/setup.md) takes you from transcript monitoring to optional hooks, policies, and live safety review. Browsing transcripts needs no API key. Live review uses paid API calls and sends selected action and conversation context to the configured provider. Anthropic is the default; [OpenAI support](docs/setup.md#optional-openai-credentials-untested) is available but untested with live calls.
 
-Relay is a Windows-focused local prototype. It stores conversations in plaintext. Hooks cover only supported tools, model judgments can be wrong, and an approval does not prove execution succeeded. Keep it on your own machine.
+Relay is a local prototype with Windows and Linux launchers. It stores conversations in plaintext. Hooks cover only supported tools, model judgments can be wrong, and an approval does not prove execution succeeded. Keep it on your own machine.
 
 [Usage reference](docs/usage-reference.md) · [All documentation](docs/README.md)

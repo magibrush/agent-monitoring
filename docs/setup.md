@@ -1,20 +1,26 @@
 # Setup
 
-These instructions connect your own agents on **Windows with PowerShell**. For a demo without an agent or key, [start here](../README.md#run-the-sample-demo).
+These instructions connect your own agents on **Windows with PowerShell** or **Linux with Bash**. For a demo without an agent or key, [start here](../README.md#run-the-sample-demo).
 
 ## Install and start
 
-Install **Python 3.11+**, [uv](https://docs.astral.sh/uv/), and [Node.js 22.12+ with npm 10+](https://nodejs.org/). Clone or download the repository and open PowerShell in its folder:
+Install [uv](https://docs.astral.sh/uv/) and [Node.js 22.12+ with npm 10+](https://nodejs.org/). The launchers use Python 3.11, which uv downloads if needed. Clone or download the repository and open a terminal in its folder.
+
+Windows (PowerShell):
 
 ```powershell
-uv sync --locked
-Set-Location frontend
-npm ci
-Set-Location ..
 powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 ```
 
-Open **http://127.0.0.1:8000**. The launcher migrates the database, builds the dashboard, and starts the API and safety workers. Ctrl+C stops them. An empty dashboard is expected before connecting an agent. Workers can wait for credentials while transcript monitoring continues.
+Linux (Bash):
+
+```bash
+bash scripts/start.sh
+```
+
+Both launchers install locked Python and frontend dependencies, create the key file if missing, migrate the database, build the dashboard, and start the API and safety workers. The first run needs internet access; subsequent runs synchronize dependencies and rebuild. Neither launcher overwrites an existing key. Open **http://127.0.0.1:8000**. Ctrl+C stops the API and workers. An empty dashboard is expected before connecting an agent. Workers can wait for credentials while transcript monitoring continues.
+
+Use a separate checkout/environment for each OS: Windows uses `.venv/Scripts/python.exe`, while Linux uses `.venv/bin/python`. For WSL, run the Linux commands inside WSL and select transcript paths accessible there.
 
 ## Connect an agent
 
@@ -22,6 +28,8 @@ Open **http://127.0.0.1:8000**. The launcher migrates the database, builds the d
 2. Choose **Codex Desktop**, **Codex CLI**, or **Claude Code**.
 3. Check the detected source and click **Connect**.
 4. Open a session from **Overview** to read it in **Explorer**.
+
+Choose an agent installed on your host; the available clients can differ by OS.
 
 Relay reads transcripts without changing them. It needs no API key for monitoring. Start a new agent conversation if there is no activity yet; only flushed transcript records can appear.
 
@@ -56,6 +64,12 @@ Before starting the API, worker, or live Lab, set the same configuration in each
 $env:RELAY_JUDGE_PROVIDER = "openai"
 ```
 
+Linux (Bash):
+
+```bash
+export RELAY_JUDGE_PROVIDER=openai
+```
+
 Create `.secrets/openai.key` and paste only your OpenAI API key into it. Alternatively, set `OPENAI_API_KEY` through your local secret manager (takes precedence), or set `RELAY_OPENAI_KEY_FILE` to another key file. Workers reread key files automatically. Environment changes require restarting the API and workers. Keys are never returned to the browser.
 
 The default OpenAI model is `gpt-4.1`. Override it with `RELAY_JUDGE_MODEL`, using an OpenAI model supporting Responses API function calling. Requests force a structured assessment and disable response storage (`store=false`); returned tools are never executed. Existing timeouts, local validation and fail-closed gate behavior still apply. Verify model access, verdict quality and latency before relying on this option.
@@ -77,21 +91,34 @@ Covered requests can wait up to **60 seconds**, including [human review](human-r
 
 ## Manual startup and development
 
-For separate terminal logs, replace the launcher with:
+For separate terminal logs, replace the launcher with these commands. Windows (PowerShell):
 
 ```powershell
+uv sync --locked --python 3.11
 uv run --locked alembic upgrade head
 Set-Location frontend
+npm ci
 npm run build
 Set-Location ..
 uv run --locked uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
+Linux (Bash):
+
+```bash
+uv sync --locked --python 3.11
+uv run --locked alembic upgrade head
+(cd frontend && npm ci && npm run build)
+uv run --locked uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
 For judging and incident analysis, run in another terminal at the repository root:
 
-```powershell
+```sh
 uv run --locked python -m backend.safety_worker --workers 2
 ```
+
+The worker command works in both shells. Alternatively, use `scripts/start-worker.ps1` on Windows or `bash scripts/start-worker.sh` on Linux after setup. Create `.secrets/anthropic.key` yourself if you use only manual startup and want file-based credentials.
 
 Use **one Uvicorn worker**. Do not run these processes alongside the combined launcher. For frontend development, run `npm run dev` in `frontend/` and open **http://127.0.0.1:5173**; it proxies `/api` to port 8000. Port 8000 serves the last production build.
 
@@ -99,7 +126,7 @@ Use **one Uvicorn worker**. Do not run these processes alongside the combined la
 
 | Symptom | Check |
 | --- | --- |
-| Runtime missing or unsupported | Check `uv --version`, `python --version`, `node --version`, and `npm --version`; update and reopen PowerShell. |
+| Runtime missing or unsupported | Check `uv --version`, `node --version`, and `npm --version`; update and reopen your terminal. The launchers provision Python through uv. |
 | Missing tables or schema errors | Stop services, back up the database, then run `uv run --locked alembic upgrade head`. |
 | Port 8000 occupied | Stop the duplicate process or change the manual API port. The Vite proxy expects 8000. |
 | No sessions | Use **Check source**; check the profile, integration, and path. Confirm the agent wrote a new transcript. |

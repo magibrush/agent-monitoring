@@ -4,14 +4,16 @@ Test synthetic tool requests through Relay's decision pipeline. Lab never execut
 
 ## Start
 
-Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/); no Node build or coding agent is needed. From the repository root:
+Requires [uv](https://docs.astral.sh/uv/); no Node build or coding agent is needed. From the repository root, these commands work in Windows PowerShell and Linux Bash (uv installs Python 3.11 if needed):
 
-```powershell
-uv sync --locked
+```sh
+uv sync --locked --python 3.11
 uv run --locked python -m lab.server
 ```
 
 Open **http://127.0.0.1:8010**. Use `--port 8018` for another port; Ctrl+C stops the server.
+
+On Linux, `bash scripts/start-lab.sh --port 8018` combines dependency setup and launch. On Windows, after syncing dependencies, `powershell -ExecutionPolicy Bypass -File scripts/start-lab.ps1 --port 8018` launches the same server.
 
 ## Try one request
 
