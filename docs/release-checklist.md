@@ -5,7 +5,7 @@ The demo, screenshots, guides, and Windows/Linux CI workflow are in place. [Loca
 ## Before tagging
 
 - [ ] Commit the intended source changes.
-- [ ] Follow [setup](setup.md) and the [demo](../README.md#run-the-sample-demo) on clean Windows and Linux environments with standard runtimes.
+- [ ] Follow [setup](setup.md) and the [demo](demo.md) on clean Windows and Linux environments with standard runtimes.
 - [ ] Run [all checks](testing.md) on the release commit and inspect remote CI.
 - [ ] Review tracked files and Git history for secrets/private data.
 - [ ] Choose a license and add its text.

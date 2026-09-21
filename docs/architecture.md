@@ -54,4 +54,4 @@ Lab creates a new migrated database, queues, and transcripts for each run. It ex
 
 Model judgments and shell matching can miss harmful effects. Data is local plaintext with limited redaction for model calls. Same-account processes can modify local policy and queues; filesystem checks cannot eliminate changes between assessment and execution.
 
-Multi-host or authenticated operation would require protected storage, stronger executor isolation, authentication, and distributed capacity controls. PostgreSQL and an outbox are future options. [Design records](README.md#design-and-development-records) explain earlier milestones.
+Multi-host or authenticated operation would require protected storage, stronger executor isolation, authentication, and distributed capacity controls. PostgreSQL and an outbox are future options. [Design records](history.md) explain earlier milestones.

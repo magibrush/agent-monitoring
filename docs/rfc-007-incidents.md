@@ -1,6 +1,6 @@
 # RFC 007: Automated incident investigation
 
-> Anthropic is the default and recommended judge provider. OpenAI is also available for judgments and incident analysis, but has not been tested with live API calls. See [OpenAI setup](setup.md#optional-openai-credentials-untested). Anthropic-specific details below describe the default configuration.
+> Anthropic is the default and recommended judge provider. OpenAI is also available for judgments and incident analysis, but has not been tested with live API calls. See [OpenAI setup](live-safety.md#optional-openai-credentials-untested). Anthropic-specific details below describe the default configuration.
 
 > Historical design record. Setup, UI, and timing details may have changed. See [current setup](setup.md), [architecture](architecture.md), and [usage](usage-reference.md). Test results below belong to this milestone.
 
