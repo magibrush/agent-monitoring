@@ -60,7 +60,7 @@ A committed workflow is not evidence of a passing remote run. Check its result o
 
 Use a clean clone on both Windows and Linux without the developer's bundled runtimes, environment, or database:
 
-1. Follow the [demo launcher instructions](../README.md#run-the-sample-demo), then stop the demo and follow [full setup](setup.md).
+1. Follow the [demo launcher instructions](demo.md), then stop the demo and follow [full setup](setup.md).
 2. Open the health endpoint and the main dashboard.
 3. Add a supported local source; confirm a new conversation appears once and remains the same session after resume.
 4. Confirm the key-free Lab walkthrough produces an inspectable report.
