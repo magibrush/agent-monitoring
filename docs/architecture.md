@@ -1,84 +1,57 @@
-# Architecture and engineering tradeoffs
+# Architecture
 
-> Anthropic is the default and recommended judge provider. OpenAI is also available for judgments and incident analysis, but has not been tested with live API calls. See [OpenAI setup](setup.md#optional-openai-credentials-untested). Anthropic-specific details below describe the default configuration.
-
-Relay separates recorded activity, decisions about proposed actions, and evidence of execution. A transcript tool call is an observation; an allow verdict is permission; a completion record is separate evidence. The UI preserves these distinctions rather than inferring success from a request.
-
-## System overview
+Relay is a local React/TypeScript dashboard backed by FastAPI and SQLite. It keeps three facts separate: a recorded tool request, permission to proceed, and evidence of execution.
 
 ```mermaid
 flowchart LR
-    Transcripts[Local agent transcripts] --> Collectors[Transcript collectors]
-    Collectors --> DB[(SQLite)]
-    Hooks[Optional agent hooks] --> Queue[Local hook queue]
-    Queue --> API[FastAPI and hook collector]
-    API <--> DB
-    UI[React dashboard] <--> API
-    DB <--> Worker[Safety workers]
-    Worker --> Judge[Anthropic or OpenAI judge]
-    UI --> Review[Human review]
-    Review --> API
-    DB --> Gate[Gate response]
-    Gate --> Agent[Covered agent tool request]
-    Lab[Relay Lab] --> Isolated[Separate synthetic runs and databases]
+    T[Agent transcripts] --> C[Collectors]
+    H[Optional pre-tool hooks] --> Q[Local queue]
+    Q --> C
+    C --> D[(SQLite)]
+    U[React dashboard] <--> A[FastAPI]
+    A <--> D
+    D <--> W[Safety workers]
+    W --> J[Optional model judge]
+    U --> R[Human review]
+    R --> A
+    D --> G[Decision and gate receipt]
+    G --> Agent[Covered agent tool]
 ```
 
-## Components and data flow
+## Components
 
-| Component | Main modules | Responsibility |
+| Area | Modules | Responsibility |
 | --- | --- | --- |
-| Transcript ingestion | `backend/connectors.py`, `backend/claude_code.py`, `backend/providers.py` | Normalize supported local records and maintain replay checkpoints |
-| Storage and queries | `backend/db.py`, `backend/analytics.py`, `backend/token_usage.py` | Persist events and provider payloads; apply shared search, scope, and aggregation |
-| Local API | `backend/main.py` | Serve the built UI, API, transcript collector, and hook collector |
-| Hooks and gate | `backend/hooks.py`, `backend/blocking.py`, `scripts/gate_hook.py` | Capture live requests, correlate observations, wait for covered decisions, and record receipts |
-| Policies and evaluation | `backend/policies.py`, `backend/safety.py`, `backend/safety_worker.py`, `backend/judge.py` | Match policy, persist work, evaluate requests, and enforce budgets |
-| Investigations | `backend/incidents.py`, `backend/incident_analysis.py` | Group concerns and maintain evidence, notes, resolution, and retrospective analysis |
-| Dashboard | `frontend/src/` | Explore activity, manage policy drafts, review pending requests, and inspect incidents |
-| Lab | `lab/server.py`, `lab/runner.py`, `lab/worker.py` | Run synthetic scenarios through isolated copies of the pipeline |
+| Ingestion | `backend/connectors.py`, `claude_code.py`, `providers.py` | Normalize transcripts and maintain replay checkpoints |
+| Storage/querying | `backend/db.py`, `analytics.py`, `token_usage.py` | Persist events and provider records; filter and aggregate |
+| API | `backend/main.py` | Serve the UI/API and run collectors |
+| Gate | `backend/hooks.py`, `blocking.py`, `scripts/gate_hook.py` | Capture requests, deliver bound decisions, and record receipts |
+| Evaluation | `backend/policy_actions.py`, `policies.py`, `safety.py`, `safety_worker.py`, `judge.py`, `judge_provider.py` | Match rules, manage durable jobs, and evaluate within deadlines |
+| Incidents | `backend/incidents.py`, `incident_analysis.py` | Group concerns and analyze cited evidence |
+| UI | `frontend/src/` | Browse activity, edit rules, and review requests |
+| Lab | `lab/server.py`, `runner.py`, `worker.py` | Exercise the pipeline with isolated synthetic runs |
 
-### Observing activity
+## Data flow
 
-The API process polls configured transcript sources. Provider adapters map records into sessions, events, and reported token usage. Checkpoints and imported records are committed together; replay handles truncation and rewrites without duplicating unchanged observations. Session identity includes its connection, so multiple profiles remain distinct.
+Collectors poll configured sources and commit normalized records with their checkpoints. Replay recovers from truncation and rewrites without duplicating unchanged observations. Session identity includes its connection. Exact tool-call IDs correlate hook observations with transcripts; no time/argument guessing merges unrelated calls. See [transcript recovery](transcript-recovery.md).
 
-The browser queries the API for filtered activity. Charts show recorded timestamps and provider-reported usage, not reconstructed execution timing or estimated billing. Optional hook observations can arrive before transcript records; exact tool-call correlation avoids counting the same action twice when matching records arrive.
+A pre-tool hook captures a proposed action. Built-in prohibitions and applied policies resolve or route it; model-dependent work becomes a durable job. Workers evaluate outside database transactions. Results remain bound to their action, inputs, and deadline, so stale results cannot release another request.
 
-### Reviewing a covered action
+Blocking has a fixed 60-second deadline with time reserved for human review and delivery. Worker lanes reserve blocking capacity; incident analysis has an independent lane. Native agent permissions still apply after release. [Usage](usage-reference.md#debug-and-performance) documents the current budgets; [policies](policies.md) explains deterministic routing.
 
-A configured pre-tool hook submits a local request. Deterministic prohibitions and applied policies can resolve or route it; model-dependent work is persisted for safety workers. A judge recommendation may allow, deny, or request human review. Decisions retain their assessed inputs and deadlines, so late or stale results cannot authorize a different request.
+## Demo and Lab
 
-Blocking requests have a fixed 60-second deadline. Automated evaluation reserves time for human response and delivery. Worker lanes reserve capacity for blocking calls; incident analysis has an independent lane. An allow response still passes through the agent's native permission system. Retrospective incident resolution never approves an action.
+The main demo selects `data/demo/monitor.db` before database initialization and ignores `DATABASE_URL`. It seeds fictional sessions and decisions, disables collectors, credential reads, workers, and live configuration changes, and permits reset and incident edits. It demonstrates the UI.
 
-### Testing the pipeline
+Lab creates a new migrated database, queues, and transcripts for each run. It exercises production collection and decision code using simulated or live judge responses. It never executes scenario commands. See [Lab](../lab/README.md).
 
-Relay Lab creates a migrated database, transcript fixtures, and local queues for each run. It uses the production collection and decision machinery, with either a scripted evaluator or live requests to the configured judge provider. The described tools are never executed. Reports distinguish expected assessments, receipt delivery, faults, and model disagreements.
+## Trade-offs
 
-## Isolated reviewer demo
+- **SQLite WAL** keeps installation small and state durable, but still allows only one writer. Contention can cause missed deadlines.
+- **Separate workers** keep model latency out of API handlers. Durable jobs recover after interruption; retries can incur duplicate API charges after a crash.
+- **Hooks plus transcripts** provide covered pre-execution checks and recoverable history. Neither provides universal visibility.
+- **One local API worker** is required because some locks and admission controls are process-local.
 
-`python -m backend.demo` sets a process-wide demo mode before database initialization. That mode selects `data/demo/monitor.db` independently of `DATABASE_URL`; seeding refuses any other database. It migrates the same schema and populates fictional sessions, completed decisions, and cited incident analyses. It starts the normal UI/API without collectors or safety workers. Source discovery returns no personal paths, credential reads return no key, and API middleware rejects live integration/configuration mutations. Only demo reset and incident status/notes edits are permitted. Reset replaces sample records in one transaction and refreshes their timestamps.
+Model judgments and shell matching can miss harmful effects. Data is local plaintext with limited redaction for model calls. Same-account processes can modify local policy and queues; filesystem checks cannot eliminate changes between assessment and execution.
 
-The sample decisions and execution records illustrate the UI; they do not exercise the live gate or establish model accuracy. The Lab remains the separate path for synthetic pipeline experiments. The Windows demo launcher uses its own Python environment under `data/demo/venv`, so it does not replace an existing development environment.
-
-## Why these choices?
-
-- **React and TypeScript:** interactive filtering, linked views, and review state without a server-rendering requirement. TanStack Query manages server state; Recharts supplies chart primitives.
-- **FastAPI and Pydantic:** typed request validation and generated API documentation, with Python adapters and evaluation utilities in the same codebase.
-- **SQLite WAL and SQLAlchemy:** low-friction local installation and durable relational state. Alembic makes schema changes explicit. WAL does not remove SQLite's single-writer limit.
-- **Separate safety worker process:** model work does not occupy API request handlers. Persisted jobs survive interruptions; claims, retries, and deadlines remain inspectable.
-- **Local hooks plus transcripts:** hooks provide a pre-execution decision point for covered tools, while transcripts provide history and recovery. Neither source provides universal visibility.
-- **Isolated Lab:** synthetic evidence without importing real conversations or executing scenario commands.
-
-## Deliberate limits
-
-This is one local application instance with one API worker. Synchronization and admission controls are partly process-local. High contention can produce missed deadlines even when records eventually reconcile. A same-account process can tamper with local files; the policy store is not an independent security boundary.
-
-Shell matching cannot interpret all scripts or encoded commands. Model evaluation can miss harmful effects or over-escalate harmless work. Redaction is limited, and filesystem checks cannot eliminate changes between assessment and execution.
-
-Multiple hosts or authenticated operators would need stronger executor isolation, protected policy storage, authentication, and distributed queue/quota control. PostgreSQL and a transactional outbox are potential future choices, not current capabilities.
-
-## Further evidence
-
-- [Transcript recovery](transcript-recovery.md)
-- [Blocking safety](rfc-005-blocking-safety.md)
-- [Performance and deadlines](rfc-006-safety-performance.md)
-- [Policies and boundaries](policies.md)
-- [Lab validation, including failures](../lab/VALIDATION.md)
+Multi-host or authenticated operation would require protected storage, stronger executor isolation, authentication, and distributed capacity controls. PostgreSQL and an outbox are future options. [Design records](README.md#design-and-development-records) explain earlier milestones.

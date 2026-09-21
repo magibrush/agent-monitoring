@@ -1,5 +1,7 @@
 # RFC 003: Live hook observation
 
+> Historical design record. Setup, UI, and timing details may have changed. See [current setup](setup.md), [architecture](architecture.md), and [usage](usage-reference.md). Test results below belong to this milestone.
+
 Status: Implemented; local smoke check confirmed by the user on 16 September 2026.
 
 Relay has received hook observations for Codex CLI and Claude Code, with no hook

@@ -35,7 +35,7 @@ The Windows GitHub Actions workflow installs Python 3.11, uv, Node 22, locked de
 
 ### Main-dashboard demo checks
 
-From the repository root, run `uv run --locked pytest backend/tests/test_demo.py -q` to check isolated storage, rejected live operations, credential suppression, incident edits, and reset behavior. After building the frontend, run `npx playwright test --config playwright.demo.config.ts` from `frontend` for the guided browser walkthrough. It starts the actual demo launcher on port 18001 (override with `RELAY_DEMO_TEST_PORT`) and resets `data/demo/monitor.db`. Stop any interactive demo first. Personal monitoring storage is not used.
+From the repository root, run `uv run --locked pytest backend/tests/test_demo.py -q` to check isolation, rejected live operations, credential suppression, incident edits, and reset. After building, run `npx playwright test --config playwright.demo.config.ts` from `frontend` for the guided walkthrough. It starts `backend.demo` on port 18001 (override with `RELAY_DEMO_TEST_PORT`) and resets `data/demo/monitor.db`. Stop any interactive demo first.
 
 A committed workflow is not evidence of a passing remote run. Check its result on the exact release commit before publishing a badge or release claim.
 
@@ -43,7 +43,7 @@ A committed workflow is not evidence of a passing remote run. Check its result o
 
 Use a clean clone on a Windows account or machine without the developer's bundled runtimes, environment, or database:
 
-1. Follow the README installation exactly.
+1. Follow the [demo launcher instructions](../README.md#run-the-sample-demo), then stop the demo and follow [full setup](setup.md).
 2. Open the health endpoint and the main dashboard.
 3. Add a supported local source; confirm a new conversation appears once and remains the same session after resume.
 4. Confirm the key-free Lab walkthrough produces an inspectable report.
@@ -56,7 +56,11 @@ Scripted tests validate pipeline behavior, not model accuracy. Live evaluations 
 
 [Lab validation](../lab/VALIDATION.md) records historical results and known failures. Rerun relevant checks on the release candidate, record its commit and environment, and do not present old test totals as current results.
 
-The [release-preparation verification record](release-preparation-verification.md) reports the local documentation-pass results and environment adjustments, separately from historical Lab measurements.
+The [release-preparation verification record](release-preparation-verification.md) records earlier local checks and environment adjustments.
+
+## Optional judge calibration
+
+`uv run --locked python scripts/evaluate_safety.py` runs the offline synthetic policy baseline. Add `--live` for paid evaluation with the configured judge provider of 12 built-in cases. `scripts/check_judge_calibration.py` provides an additional opt-in live check. These send synthetic evidence, execute no proposed commands, and do not establish general model accuracy.
 
 ## OpenAI support status
 

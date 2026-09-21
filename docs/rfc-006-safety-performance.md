@@ -1,8 +1,10 @@
 # RFC 006: Predictable safety decisions and operator triage
 
+> Historical design record. Setup, UI, and timing details may have changed. See [current setup](setup.md), [architecture](architecture.md), and [usage](usage-reference.md). Test results below belong to this milestone.
+
 Status: milestones 1–3 implemented. Local incident investigations from milestone 4 are implemented in [RFC 007](rfc-007-incidents.md); authenticated assignment and service-backed alerts remain future work.
 
-## Problem and current system
+## System when proposed
 
 Relay proves synchronous pre-tool interception, deterministic prohibitions, a durable SQLite queue, concurrent Haiku evaluation, exact-action human approval, and delivery receipts. Every action not deterministically denied still reaches Haiku. The 60-second hook deadline includes ingestion, queueing, model attempts, human review, and delivery. A receipt is not proof of execution, and installed hooks are not proof of coverage.
 

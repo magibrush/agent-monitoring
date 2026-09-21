@@ -1,111 +1,63 @@
 # Relay Lab
 
-> Anthropic is the default and recommended judge provider. OpenAI is also available for judgments and incident analysis, but has not been tested with live API calls. See [OpenAI setup](../docs/setup.md#optional-openai-credentials-untested). Anthropic-specific details below describe the default configuration.
+Test synthetic tool requests through Relay's decision pipeline. Lab never executes the described commands and keeps each run separate from your monitoring data.
 
-A separate local app for sending synthetic agent activity through Relay. It needs
-the same Python environment as Relay; there is no additional frontend build.
+## Start
 
-From the repository root:
-
-```powershell
-.venv\Scripts\python.exe -m lab.server
-```
-
-Open **http://127.0.0.1:8010**. `--port 8018` chooses another local port.
-
-## What to run
-
-- **Scenarios:** select the six policy examples, boundary cases, built-in
-  root-deletion protection, and judge decisions. Each selected scenario runs exactly once.
-- **Custom request:** enter the user request, tool name, and JSON arguments.
-  Runs one request. In live mode, expected results are comparison targets; in
-  simulated mode, they supply the judge response.
-- **Load test:** start with a burst, capacity saturation, replay and
-  reordering, or a recoverable provider error. Judge responses are simulated.
-  Request mix and advanced controls are collapsed by default. Adjust up to 10,000 actions,
-  256 simultaneous queue clients, 32 connections, and 8 workers. A rate of zero
-  submits as fast as clients become available; a positive rate paces arrivals.
-- **Real gate-hook processes:** exercises the actual stdin/exit-code boundary,
-  limited to 32 concurrent Python processes. Queue clients share the production
-  capture, reply validation, and receipt functions, avoiding thousands of Python
-  processes while preserving the durable protocol.
-- **Unanswered review:** keeps the real 60-second deadline. **Workers offline**
-  exercises automated-budget expiry. No production timing or capacity limits
-  are relaxed for the tests.
-
-## Two different kinds of evidence
-
-**Scripted** is the default and never calls an LLM. The real worker claims jobs,
-retries, and persists results, but an injected evaluator returns a known response.
-This proves the pipeline handles deny, review, allow-with-suspicion, severity,
-receipts, and incidents correctly. It does **not** prove model detection accuracy.
-
-**Live judge** calls the configured judge provider with synthetic conversation
-and action data. Nothing asks an upstream LLM to generate the action, and neither
-the expected verdict nor test instructions enter the model snapshot. Live runs
-are limited to 25 actions and 4 concurrent clients. Model disagreement is shown
-separately from a pipeline failure. In particular, “allow but suspicious” examples
-are hypotheses for the live model, not guaranteed classifications. Use made-up
-data in custom scenarios; live mode sends it to the configured judge provider and incurs API charges.
-The action's working directory is a fictional `Workspaces/storefront` path. It is
-never created or accessed; the real transcript location stays out of the model
-snapshot so that a lab directory name cannot give away the test framing.
-
-**Include incident analysis** also runs the existing independent analysis lane,
-including its real debounce and evidence checks. Scripted analysis returns cited
-fixtures; live analysis uses the configured provider. The drain window is up to
-185 seconds, with a maximum of 25 actions so the analysis queue can settle.
-Without this option, incident creation is tested and analysis remains
-queued; it is never reported as tested.
-
-## Reading a run
-
-- A **delivered** request has a persisted gate receipt. A release is permission,
-  not evidence that the tool ran. The lab never executes a tool command.
-- **Passed** means the expected assessment and required delivery/incident checks
-  passed. **Capacity blocked** means Relay rejected overload safely; it is not a
-  successful model assessment. **Fault blocked** means an injected outage failed
-  closed. **Judge differed** identifies a live result outside the expected fields.
-- Missing or mismatched receipts, unsafe releases, duplicate evaluations, missed
-  incidents, incomplete messages, and leftover hook files remain visible failures.
-- Latencies run from a client's submission through its gate return. Percentiles
-  include only requests with both a client return and persisted receipt. The rate
-  divides delivered receipts by traffic duration, excluding the final drain.
-  Blocked requests count toward this delivery rate; it is not model throughput.
-- Completion hooks are synthetic. The out-of-order option intentionally delivers
-  a completion before a request, even for actions that subsequently get blocked.
-- Stop prevents new submissions. In-flight requests keep their normal deadlines
-  and collectors drain. A stopped/crashed run never counts unstarted work as passed.
-
-## Isolation and artifacts
-
-Every run starts a subprocess with a new migrated database in
-`data/lab/<uuid>/relay.db`, private queues, and synthetic transcript files. It does
-not connect to port 8000, modify provider hook settings, read real conversations,
-or reuse the production database. The application has no arbitrary target URL.
-Only one run is active at a time through the UI.
-
-Each directory retains `config.json`, `report.json`, `runner.log`, and per-action
-`evidence/<index>.json` with the exact frozen context and incident evidence.
-Export JSON downloads the full report, including all rows; the UI paginates them.
-Restarting the lab preserves results and marks unfinished runs interrupted.
-There is no automatic deletion of run data.
-
-The collector and worker run in separate processes, with the real worker service,
-lanes, heartbeat, and independent analysis capacity. The only production service
-change is an optional stop event for cleanly shutting down the owned worker.
-The lab measures this pipeline and SQLite contention on this machine; it does
-not benchmark Relay's HTTP server. Large queue runs can still compete with other
-local applications for CPU and disk.
-Each action uses a fresh Codex CLI conversation, so this load includes session
-creation and transcript ingestion. Claude and Desktop adapter coverage remains
-in the main backend test suite.
-
-## Tests
+Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/); no Node build or coding agent is needed. From the repository root:
 
 ```powershell
-.venv\Scripts\python.exe -m pytest lab/tests -q
+uv sync --locked
+uv run --locked python -m lab.server
 ```
 
-Browser tests use `frontend/playwright.lab.config.ts` and a separate lab server
-on port 8018. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to your Chrome path if needed.
+Open **http://127.0.0.1:8010**. Use `--port 8018` for another port; Ctrl+C stops the server.
+
+## Try one request
+
+1. Select **Custom request** and keep **Evaluate with → Simulated responses**.
+2. Keep the prefilled **Unexpected data transfer** example and its Deny verdict.
+3. Click **Test request**. Inspect the assessment, delivery receipt, and conversation evidence.
+4. Use **Export JSON** to save the report.
+
+Simulated responses need no API key. To explore rules, switch to **Scenarios** and choose a small selection.
+
+## Choose a mode
+
+| Mode | Purpose |
+| --- | --- |
+| Scenarios | Run each selected policy or boundary case once. |
+| Custom request | Supply user intent, a tool name, and JSON arguments. |
+| Load test | Exercise bursts, capacity limits, replay/reordering, or recoverable faults with simulated responses. |
+
+**Simulated responses** use the real collection, worker, retry, and receipt machinery with a known evaluator result. They test the pipeline, not model detection accuracy.
+
+**Live judge** sends synthetic action and conversation data to the configured provider using [configured credentials](../docs/setup.md#optional-anthropic-credentials), incurring API charges. Anthropic is the default; [OpenAI support](../docs/setup.md#optional-openai-credentials-untested) has not been tested with live calls. Expected results are comparison targets and are not sent to the judge. Use made-up data. Live runs allow at most 25 actions and four concurrent clients; model disagreements are separate from pipeline failures.
+
+**Include incident analysis** exercises the independent analysis lane with real debounce/evidence checks. It limits runs to 25 actions and allows up to 185 seconds to drain. Without it, incident creation is checked but analysis remains queued and is not reported as tested.
+
+## Read the results
+
+| Result | Meaning |
+| --- | --- |
+| Passed | Expected assessment and required delivery/incident checks passed. |
+| Capacity blocked | Overload was rejected safely; this is not a completed model assessment. |
+| Fault blocked | An injected outage caused a safe denial. |
+| Judge differed | A live verdict differed from expected fields. |
+| Delivered | A gate receipt was persisted; permission does not prove tool execution. |
+
+Missing/mismatched receipts, unsafe releases, duplicate evaluations, missed incidents, incomplete messages, and leftover hook files remain failures. **Stop** prevents new submissions; in-flight work keeps its deadlines and drains. Unstarted work never counts as passed.
+
+Latency measures client submission through gate return, using only requests with both a return and receipt. Delivery rate includes blocked requests and excludes final drain time; it is not model throughput. Completion hooks are synthetic, and reordering tests can deliver a completion before a request that is later blocked.
+
+## Load controls and isolation
+
+Queue mode supports up to 10,000 actions, 256 clients, 32 connections, and eight workers. Zero rate submits as fast as clients allow; positive rates pace arrivals. **Real gate-hook processes** test the stdin/exit-code boundary with at most 32 concurrent Python processes. Queue clients use the same capture, reply validation, and receipt functions.
+
+**Unanswered review** keeps the real 60-second deadline; **Workers offline** tests automated-budget expiry. Production limits are not relaxed. Each action uses a fresh Codex CLI conversation, so load includes session creation and ingestion. This measures the local pipeline and SQLite contention, not HTTP-server throughput. Claude and Desktop adapter coverage lives in backend tests.
+
+Each run has a subprocess, migrated database, private queues, and synthetic transcripts under `data/lab/<uuid>/`. It neither reads real conversations nor changes provider hooks. The UI runs one experiment at a time.
+
+Artifacts include `relay.db`, `config.json`, `report.json`, `runner.log`, and `evidence/<index>.json`. JSON exports include every row. Restarting preserves results and marks unfinished runs interrupted; run data is not automatically deleted.
+
+See [testing](../docs/testing.md) for Python/browser commands and [validation records](VALIDATION.md) for historical results, including failures.
