@@ -106,9 +106,7 @@ test("automatic flagged allowance explains the conversation, outcome and cited n
       path: "../data/qa/automated-incident-mobile.png",
       fullPage: true,
     });
-    await page
-      .getByRole("button", { name: "Back to incidents", exact: true })
-      .click();
+    await expect(page.getByRole("button", { name: "Back to incidents", exact: true })).toHaveCount(0);
     const card = page
       .locator(".incident-list-card")
       .filter({ hasText: "Allowed by the judge, flagged" });
