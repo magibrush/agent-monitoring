@@ -1,123 +1,115 @@
-# Setup and troubleshooting
+# Setup
 
-Want to explore first? The [sample dashboard demo](demo.md#the-three-minute-tour) needs no agent or API key and uses isolated storage. The instructions below connect Relay to your own agent activity.
-
-## Prerequisites
-
-Relay is currently documented for Windows and PowerShell. Other operating systems are not claimed as verified release targets. Commands below start in the repository root.
-
-| Dependency | Requirement | Check |
-| --- | --- | --- |
-| Git | To clone the repository | `git --version` |
-| Python | 3.11 or newer | `python --version` |
-| uv | Python dependency and environment management | `uv --version` |
-| Node.js | 22.12 or newer; supported LTS recommended | `node --version` |
-| npm | 10 or newer | `npm --version` |
-| Coding agent | Codex Desktop, Codex CLI, or Claude Code with local transcripts; unnecessary for Lab | Check the agent separately |
-
-Python and uv are enough for Relay Lab. The main dashboard also requires Node and npm to build. An agent subscription or login is separate from API credentials for Relay's judge.
+These instructions connect your own agents on **Windows with PowerShell** or **Linux with Bash**. For a demo without an agent or key, [start here](../README.md#run-the-sample-demo).
 
 ## Install and start
 
-Clone the repository using its GitHub Clone URL, then open PowerShell in the cloned directory. Install the locked dependencies:
+Install [uv](https://docs.astral.sh/uv/) and [Node.js 22.12+ with npm 10+](https://nodejs.org/). The launchers use Python 3.11, which uv downloads if needed. Clone or download the repository and open a terminal in its folder.
 
-```powershell
-uv sync --locked
-Set-Location frontend
-npm ci
-Set-Location ..
-```
-
-Start the application:
+Windows (PowerShell):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/start.ps1
 ```
 
-The launcher migrates `data/monitor.db`, builds the frontend, starts two safety worker lanes plus the incident analysis lane, and serves the UI and API at **http://127.0.0.1:8000**. It may use a compatible Codex-bundled Node if present; a normal installation of the required Node version should be available for reproducible setup. Ctrl+C stops the launcher and its safety worker.
+Linux (Bash):
 
-Check **http://127.0.0.1:8000/api/health** or run `Invoke-RestMethod http://127.0.0.1:8000/api/health`. An empty dashboard is expected until you add a connection. Safety workers may wait for credentials while transcript monitoring continues normally.
+```bash
+bash scripts/start.sh
+```
 
-### Manual startup
+Both launchers install locked Python and frontend dependencies, create the key file if missing, migrate the database, build the dashboard, and start the API and safety workers. The first run needs internet access; subsequent runs synchronize dependencies and rebuild. Neither launcher overwrites an existing key. Open **http://127.0.0.1:8000**. Ctrl+C stops the API and workers. An empty dashboard is expected before connecting an agent. Workers can wait for credentials while transcript monitoring continues.
 
-If you want separate terminal logs, build and start the API in one terminal:
+Use a separate checkout/environment for each OS: Windows uses `.venv/Scripts/python.exe`, while Linux uses `.venv/bin/python`. For WSL, run the Linux commands inside WSL and select transcript paths accessible there.
+
+## Connect an agent
+
+1. Open **Connections → Add connection**.
+2. Choose **Codex Desktop**, **Codex CLI**, or **Claude Code**.
+3. Check the detected source and click **Connect**.
+4. Open a session from **Overview** to read it in **Explorer**.
+
+Choose an agent installed on your host; the available clients can differ by OS.
+
+Relay reads transcripts without changing them. It needs no API key for monitoring. Start a new agent conversation if there is no activity yet; only flushed transcript records can appear.
+
+| Agent | Default source |
+| --- | --- |
+| Codex Desktop / CLI | `CODEX_HOME` or `~/.codex`; sessions are separated by their original client |
+| Claude Code | `CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects` |
+
+One connection covers multiple projects and terminals. Use the advanced folder option for another profile, archives, or an accessible WSL path. Remote hosts are not discovered. Deleting a connection removes imported Relay records, not source transcripts; disable its live hooks first if enabled.
+
+## Optional Anthropic credentials
+
+Live judging and incident analysis use `claude-haiku-4-5-20251001`. They send selected action and conversation evidence to Anthropic and incur API charges. Redaction is limited, so sensitive text can remain in that evidence. An agent subscription does not supply Relay's API access.
+
+Choose one:
+
+| Method | Configuration |
+| --- | --- |
+| Key file | Paste only the key into `.secrets/anthropic.key`. The launcher creates the empty file; workers reread it automatically. |
+| Environment | Set `ANTHROPIC_API_KEY` for the API and worker. It overrides the file; restart processes after changing it. |
+| Alternate file | Set `RELAY_ANTHROPIC_KEY_FILE` to an absolute file path. |
+
+Keep keys out of commits. `.secrets/`, `.env`, and `*.key` are ignored, but Relay does **not** load `.env` files automatically. An OpenAI key is not used. Without credentials, model jobs wait; blocking requests still expire and deny.
+
+## Optional live hooks and blocking
+
+1. Choose **Connections → Set up live hooks → Enable live hooks**. Relay backs up the provider settings and adds its handlers.
+2. Restart agent sessions. Review and trust the Codex handler if prompted. Run a harmless tool call and check **Last received**.
+3. To hold actions for review, open **Safety → Settings → Protection by connection → Configure → Enable blocking Haiku evaluation**. Restart agent sessions after changing the hook configuration.
+4. Keep the API and worker running; verify a harmless new action.
+
+Covered requests can wait up to **60 seconds**, including [human review](human-review.md). An allow or approval continues to the agent's native permissions. Expired requests must be submitted again. Hooks do not cover every tool or provide a tamper-resistant sandbox.
+
+**Disable live hooks** removes Relay's handlers. Deleting a connection alone leaves inert handlers in the provider settings. See [hook coverage](rfc-003-live-hook-observation.md#outcomes-and-boundaries) and [policy rules](policies.md).
+
+## Manual startup and development
+
+For separate terminal logs, replace the launcher with these commands. Windows (PowerShell):
 
 ```powershell
+uv sync --locked --python 3.11
 uv run --locked alembic upgrade head
 Set-Location frontend
+npm ci
 npm run build
 Set-Location ..
 uv run --locked uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-For safety judging and incident analysis, open a second terminal in the repository root:
+Linux (Bash):
 
-```powershell
+```bash
+uv sync --locked --python 3.11
+uv run --locked alembic upgrade head
+(cd frontend && npm ci && npm run build)
+uv run --locked uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+For judging and incident analysis, run in another terminal at the repository root:
+
+```sh
 uv run --locked python -m backend.safety_worker --workers 2
 ```
 
-Use one Uvicorn worker: ingestion and synchronization locks are process-local. Do not run the combined launcher alongside a manually started API or worker. Stop each manual process with Ctrl+C.
+The worker command works in both shells. Alternatively, use `scripts/start-worker.ps1` on Windows or `bash scripts/start-worker.sh` on Linux after setup. Create `.secrets/anthropic.key` yourself if you use only manual startup and want file-based credentials.
 
-## Connect your first agent
-
-1. Open **Connections → Add connection**.
-2. Choose **Codex Desktop**, **Codex CLI**, or **Claude Code**.
-3. Review the detected source and click **Connect**.
-4. Open **Overview**, then a session in **Explorer**. For a live check, start a new agent conversation, send a harmless prompt, and allow time for its transcript to flush and Relay to collect it.
-
-Codex uses `CODEX_HOME` or `~/.codex`; Desktop and CLI sessions are classified separately. Claude Code uses `CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects`. A connection can contain conversations from many projects and terminals. Custom profiles and accessible WSL folders need an explicit source path; Relay does not discover remote hosts.
-
-Monitoring reads source transcripts without modifying them. It does not install hooks or call a model. Deleting a connection removes its imported Relay records, not its source transcripts. Disable live hooks before deleting a connection if you previously enabled them.
-
-## Optional Anthropic credentials
-
-The current judge and incident analysis use `claude-haiku-4-5-20251001`. Live evaluation needs an Anthropic API key with model access and available API credit/quota. An OpenAI API key is not used by Relay.
-
-Choose one configuration method:
-
-- **Key file:** create `.secrets/anthropic.key` under the repository root and paste only the key into it using a local editor. The launcher creates an empty file when needed. Workers reread it without restarting.
-- **Environment:** provide `ANTHROPIC_API_KEY` to the API/worker process using your local secret-management method. This takes precedence over the file. Restart existing processes after changing their environment.
-- **Alternate key file:** set `RELAY_ANTHROPIC_KEY_FILE` to the absolute path of a file containing the key.
-
-Do not add actual keys to documentation or commits. `.secrets/`, `.env` files, and `*.key` files are ignored. Relay does not automatically load a `.env` file.
-
-Without credentials, model-dependent jobs wait locally; a blocking request still has a deadline and cannot continue just because the key is missing. Deterministic policy paths and explicit debug simulation are separate from model evaluation. Use scripted Lab mode for a predictable key-free demo.
-
-Live safety evaluation sends the proposed action and selected bounded conversation context to Anthropic. Incident analysis sends its selected evidence. Limited redaction is applied, but arbitrary sensitive text can remain. Calls incur API charges; usage varies with context, attempts, and incident analysis. Scripted Lab runs make no provider calls.
-
-## Optional live hooks and blocking
-
-Start with transcript monitoring. To observe live hooks, use **Connections → Set up live hooks → Enable live hooks**. Relay updates the provider profile settings and saves a backup. Restart agent sessions and, for Codex, review and trust the handler if prompted. The connection stays **waiting for first hook** until one actually arrives.
-
-For blocking evaluation, use **Safety → Settings → Protection by connection → Configure → Enable blocking Haiku evaluation**. Keep the API and safety worker running and verify a harmless new action before relying on the workflow. Covered requests can wait up to 60 seconds, including human review. An approval or allow verdict proceeds to the agent's native permissions; it does not bypass them. Expired requests need a new action request.
-
-Use **Disable live hooks** to remove Relay's handlers. Deleting a connection alone leaves inert handlers in the provider settings. See [hook coverage](rfc-003-live-hook-observation.md), [blocking boundaries](rfc-005-blocking-safety.md), and [human review](human-review.md).
-
-## Frontend development
-
-Keep the API running on port 8000, then in a second terminal:
-
-```powershell
-Set-Location frontend
-npm run dev
-```
-
-Open **http://127.0.0.1:5173**. Vite proxies `/api` to the backend. The API's port-8000 frontend uses the last production build, so rebuild to update that version.
+Use **one Uvicorn worker**. Do not run these processes alongside the combined launcher. For frontend development, run `npm run dev` in `frontend/` and open **http://127.0.0.1:5173**; it proxies `/api` to port 8000. Port 8000 serves the last production build.
 
 ## Troubleshooting
 
-| Symptom | Check or next step |
+| Symptom | Check |
 | --- | --- |
-| `uv`, Python, Node, or npm not found | Install the prerequisite, reopen the terminal, and check the versions above. |
-| Build reports unsupported Node | Put Node 22.12+ on PATH; do not rely on a machine-specific bundled runtime. |
-| Missing tables or schema errors | Stop services, back up an existing database, and run `uv run --locked alembic upgrade head`. |
-| Port 8000 already in use | Stop the duplicate Relay process or choose another API port. The Vite development proxy assumes port 8000. |
-| No sessions after connecting | Check the selected integration, source path, connection error, and **Check source**. Start a new session and verify the agent wrote a transcript. |
-| CLI sessions appear missing | Check `CODEX_HOME`, Desktop versus CLI provenance, and whether the path is accessible to the backend. |
-| Judge remains waiting | Check worker logs and credentials; environment credentials override the file. |
-| Authentication, quota, or model error | Check Anthropic API access and quota. Use scripted Lab mode while resolving provider setup. |
-| Hook shows no activity | Restart the agent, trust the handler where required, and check **Last received** after a harmless tool call. |
-| Blocking action expires | Check API and workers, then inspect the request's timing/error evidence. Expired approvals cannot release an old request. |
-| Browser tests cannot start | Build first, install Playwright Chromium, and use an unused `RELAY_E2E_PORT`; see [testing](testing.md). |
+| Runtime missing or unsupported | Check `uv --version`, `node --version`, and `npm --version`; update and reopen your terminal. The launchers provision Python through uv. |
+| Missing tables or schema errors | Stop services, back up the database, then run `uv run --locked alembic upgrade head`. |
+| Port 8000 occupied | Stop the duplicate process or change the manual API port. The Vite proxy expects 8000. |
+| No sessions | Use **Check source**; check the profile, integration, and path. Confirm the agent wrote a new transcript. |
+| Judge waiting or failing | Check worker logs, Anthropic credentials, model access, and quota. Environment credentials override the file. |
+| No hook activity | Restart the agent, trust the handler if required, then check **Last received** after a harmless tool call. |
+| Blocking action expires | Check the API/worker and request timing/error evidence, then submit a new request. |
 
-Local state defaults to `data/monitor.db`; Lab artifacts live under `data/lab/`. Back up a database with the application and workers stopped. Do not publish databases, hook queues, settings backups, or screenshots of private conversations. This local app is not designed to be exposed on a public interface.
+Health: **http://127.0.0.1:8000/api/health**. API reference: **http://127.0.0.1:8000/docs**. For test setup, see [testing](testing.md).
+
+Local conversations are plaintext in `data/monitor.db`; Lab runs live under `data/lab/`. Stop the API and workers before backing up databases. Keep databases, hook queues, settings backups, and private screenshots out of published materials. Bind this single-user app to loopback only.

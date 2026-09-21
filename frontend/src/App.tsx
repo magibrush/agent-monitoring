@@ -5,7 +5,6 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Database,
   LayoutDashboard,
   MessageSquare,
   Plug,
@@ -223,16 +222,9 @@ export default function App() {
           <span className="brand-symbol">
             <Activity size={21} />
           </span>
-          relay<span className="version">{demo ? "DEMO" : "LOCAL"}</span>
+          relay{demo && <span className="version">DEMO</span>}
         </a>
-        <div className="workspace">
-          <span className="workspace-icon">M</span>
-          <div>
-            {demo ? "Trailhead sample" : "My workspace"}<small>{demo ? "Fictional project" : "Personal environment"}</small>
-          </div>
-        </div>
-        <div className="nav-label">WORKSPACE</div>
-        <nav>
+        <nav aria-label="Main navigation">
           {(
             [
               { name: "Overview", icon: LayoutDashboard },
@@ -245,6 +237,7 @@ export default function App() {
               key={name}
               data-tour-nav={name.toLowerCase()}
               className={`nav-item ${page === name ? "active" : ""}`}
+              aria-current={page === name ? "page" : undefined}
               onClick={() => changePage(name)}
             >
               <Icon size={18} />
@@ -258,39 +251,8 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <div className="local-note">
-            <Database size={17} />
-            <div>
-              Stored on this device<small>{demo ? "Synthetic data · no model calls" : "Judge context is sent to Anthropic."}</small>
-            </div>
-          </div>
-          <div className="profile">
-            <span>ME</span>
-            <div>
-              Local workspace<small>Monitoring + safety evaluation</small>
-            </div>
-            <span className="status-dot" />
-          </div>
-        </div>
       </aside>
       <div className="main-shell">
-        <header className="topbar">
-          <div className="breadcrumb">
-            Workspace
-            <ChevronRight size={14} />
-            <strong>{page}</strong>
-          </div>
-          <div className="topbar-right">
-            <span className={`status-dot ${health.isError ? "red" : ""}`} />
-            {health.isError
-              ? "Backend offline"
-              : health.isPending
-                ? "Connecting…"
-                : "Local backend connected"}
-            <span className="top-avatar">M</span>
-          </div>
-        </header>
         {demo && <DemoBanner onStart={() => { clearFilters(); changePage("Overview"); }} />}
         <main className={page === "Overview" ? "overview-page" : ""}>
           <div className="page-heading">

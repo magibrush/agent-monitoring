@@ -1,75 +1,62 @@
 # Safety policies
 
-Open **Safety → Policies**. Choose **Add rule**; presets on the right fill the form without saving it. A rule answers three questions: **when**, **for which connections**, and **what happens**. Rules can cover all connections (including future ones) or any selected set. Folders are optional for restrictive rules.
+Open **Safety → Policies → Add rule**. Pick a preset or choose an activity, connections, conditions, and decision. **Save rule** stages a draft; **Apply changes** activates it for new requests.
 
-## Decisions and matching
+## Decisions
 
-- **Block** rejects a matching request.
-- **Ask me** sends it straight to human approval without waiting for the judge.
-- **Send to judge** requires the ordinary judge path even if a permissive rule also matches.
-- **Approve automatically** bypasses the queue and model for verified, scoped direct file reads.
-
-Built-in prohibitions win, followed by Block → Ask me → Send to judge → Approve automatically. A compact priority chain shows Block → Ask me → Send to judge → Approve automatically. Unmatched actions retain the existing judge behavior. Rules stop execution only on connections with blocking enabled; advisory connections record what would have happened. Human approval never silently creates a permanent rule.
-
-## Activities and conditions
-
-| Activity | What matches |
+| Decision | Effect |
 | --- | --- |
-| Read files | Supported structured file-read tools; optional folders, extensions and filename patterns |
-| Write or edit files | Supported write/edit/patch tool calls; resource filters require a known file target |
-| Run shell commands | Known shell execution tools, including Bash, PowerShell, exec and exec_command |
-| Detected Git pushes | Visible Git push signals inside known shell commands |
-| Sensitive-file access | Recognized sensitive file paths or visible command signals, including .env and credential paths |
+| Block | Reject the request. |
+| Ask me | Request human approval without calling the judge. |
+| Send to judge | Require model evaluation, even if an approval rule also matches. |
+| Approve automatically | Bypass model evaluation for verified, scoped direct file reads. |
+
+Priority: **built-in prohibitions → Block → Ask me → Send to judge → Approve automatically**. Unmatched actions follow normal judging. Rules stop execution only on connections with blocking enabled; shadow connections record advisory decisions. Human approval never creates a permanent rule.
+
+## Conditions and boundaries
+
+Rules can cover all connections, including future ones, or selected connections.
+
+| Activity | Matches |
+| --- | --- |
+| Read files | Supported structured reads; optional folders, extensions, and filename patterns |
+| Write or edit files | Supported writes, edits, and patches; resource filters require a known file target |
+| Run shell commands | Known shell tools, including Bash, PowerShell, exec, and exec_command |
+| Detected Git pushes | Visible Git push signals in known shell commands |
+| Sensitive-file access | Recognized paths or command signals, including `.env` and credential paths |
 | Detected network requests | Known network tools and visible shell network signals |
-| Use a specific tool | An exact tool name, useful for custom tools and integrations |
+| Use a specific tool | An exact tool name |
 
-Optional literal command text, exact tool name live under **More conditions**. Enable or disable each rule using its switch in the rules list; this saves a draft change. Filename patterns apply to the basename (e.g. `.env`, `.env.*`, `*.pem`), not the whole path; they are not regular expressions. Extensions and filename patterns combine with AND; alternatives inside each list combine with OR. Connections and folders inside their lists combine with OR.
+**More conditions** includes literal command text and exact tool names. Filename patterns match basenames (`.env.*`, `*.pem`), not full paths or regular expressions. Extensions and patterns combine with AND; alternatives within a list combine with OR.
 
-For direct file operations, folders match the target file. Restrictive rules examine lexical and resolved paths. For shell commands, folders match where the command starts; they do not confine its effects. For mixed activities such as sensitive-file access and specific tools, the same target/working-directory distinction applies.
+For direct file operations, folders match the target file; restrictive rules check lexical and resolved paths. For shell commands, folders match the starting directory, not every affected path. Git, network, and credential detection can match quoted text or miss aliases, scripts, encoded commands, and unknown tool formats. Use an all-shell Ask me rule if every shell command needs review.
 
-Git, credential and network detection identifies visible signals, not arbitrary program behavior. It can conservatively match quoted text. Indirect scripts, aliases, encoded commands or unknown tool envelopes may not be recognized. Use an all-shell Ask me rule when all shell execution needs approval, or an exact-tool rule for an integration. Unknown behavior cannot qualify for automatic approval merely because its text looks safe.
+### Automatic file-read approval
 
-Automatic approval supports `Read` and `read_file` with exactly one `path` or `file_path`, plus optional positive integer `offset`/`limit`. Explicit existing folders and selected extensions are required: `.md`, `.rst`, `.txt`, `.py`, `.js`, `.jsx`, `.ts`, `.tsx`, `.css`, `.html`. Hidden/credential-like paths, symlinks/junctions, Relay data, unknown arguments and alternative data streams remain excluded. A filename extension does not prove the content is non-sensitive; scope it deliberately. Shell approval by prefix or substring is not supported.
+Supported tools are `Read` and `read_file`, with exactly one `path` or `file_path` and optional positive integer `offset`/`limit`. Existing folders and selected extensions are required: `.md`, `.rst`, `.txt`, `.py`, `.js`, `.jsx`, `.ts`, `.tsx`, `.css`, `.html`.
 
-## Save, test, apply
+Hidden or credential-like paths, symlinks/junctions, Relay data, unknown arguments, and alternative data streams are excluded. Extensions do not prove content is non-sensitive. Shell approval by prefix or substring is unsupported. Filesystem checks cannot eliminate changes between assessment and execution.
 
-**Save rule** updates one persistent working draft, preserving other rules. Editing and removing rules do not create a visible version for each click. Removal and discarding use confirmation dialogs. **Review changes** opens a dialog showing added, changed and removed rules against the live set. Draft and Live tabs keep working changes separate from enforcement. **Discard draft** asks once before abandoning all staged changes.
+## Test and apply
 
-**Simulate past requests** locally replays up to 500 recent non-debug assessments using saved redacted inputs and today's filesystem. It executes no actions and makes no model calls. Results include built-in protections, explicit judge routing, unmatched requests and unavailable evidence. They are a bounded impact preview, not an accuracy score or a reconstruction of historical filesystem state.
+Edits, switches, and removals accumulate in one persistent draft. **Review changes** compares it with live rules; **Discard draft** abandons it.
 
-Optionally **Start live simulation** records candidate decisions on new requests while the current live rules still apply. This was formerly called a shadow trial. It never independently releases, rejects or pauses an action. Results refresh automatically and summarize up to the latest 1,000 test records for the tested version. Judge disagreements are diagnostic feedback, not ground truth. **Stop live simulation** ends observation. An empty live test is not a prerequisite to applying rules.
+| Option | What it does |
+| --- | --- |
+| Simulate past requests | Checks up to 500 recent non-debug assessments using saved redacted inputs and today's filesystem; no commands or model calls. |
+| Start live simulation | Records candidate decisions on new requests while current rules still apply; displays up to the latest 1,000 records. |
+| Apply changes | Uses the draft for new requests. Already paused requests retain their original assessment. |
+| Pause / Resume rules | Temporarily uses built-in checks and ordinary judging, then restores the saved rules. |
+| History → Restore as draft | Copies an applied version into a draft for review and application. |
 
-**Apply changes** affects only new requests. Simulation is optional: applying a draft without a past-request simulation shows a confirmation. “Don’t ask again in this browser” hides that warning; restore it under Safety settings → Policies. Already paused requests keep their original assessment. A matching automatic approval still needs the normal bound delivery receipt before Relay reports release. **Pause rules** restores built-in checks and ordinary judging while keeping the rules in place with muted styling and struck-through names. **Resume rules** restores that set. History shows applied policies, change details and **Restore as draft**. Test and apply the restored draft to change live protection.
+Simulation is optional. Applying without a past simulation asks for confirmation; the browser can remember your preference, resettable in Safety settings. Simulations preview rule impact, not model accuracy or historical filesystem state. Judge disagreements are diagnostic feedback, not ground truth.
 
-## Architecture and limits
+Filter results by outcome or search by command, session, or rule. Select a request to compare its recorded assessment and draft decision. Results paginate in groups of 20; older previews may need rerunning to populate details. Editing a tested draft stops its outdated live simulation and invalidates the old preview.
 
-Action normalization (`backend/policy_actions.py`) extracts conservative facts. Deterministic matching and lifecycle (`backend/policies.py`) share those facts with previews and observational tests. Enforcement stays in the existing gate path. Legacy versions preserve their original matcher and remain rollbackable; editing creates the new schema. Migration 0013 adds the working-draft pointer and persisted preview results. Existing unfinished work is adopted once; old snapshots remain stored. Testing freezes an internal snapshot; subsequent edits update the conceptual draft using a new snapshot, stop an outdated live test and invalidate the previous simulation. These internal snapshot IDs are not shown as user-facing versions.
+## Implementation
 
-This remains a single-host PoC, not a tamper-resistant boundary. Rules and local-operator audit history are in SQLite, with revision checks to prevent stale-window overwrites. Arbitrary code under the same OS account can bypass application controls. Filesystem checks cannot eliminate a change between assessment and execution. Strong executor isolation, authenticated operators and a separate protected policy store remain future work.
+`backend/policy_actions.py` normalizes action facts; `backend/policies.py` handles matching and draft lifecycle. Matching is shared by previews and enforcement. Snapshots preserve assessed policy versions; revision checks reject stale edits. Legacy versions retain their original matcher. Migrations 0013–0014 add persistent drafts/previews and paused-policy retention.
 
-## Manual verification
+Debug mode overrides custom routing and judging on new assessments, while built-in prohibitions, incomplete-action checks, and deadlines remain enforced. Turn Debug off to resume configured rules.
 
-1. Choose **Review force pushes**, choose two test connections, save and test. Start a live test and confirm current enforcement stays unchanged.
-2. Apply it, then submit a synthetic Git push request containing `--force` through a blocking test connection without executing the command. It should reach human approval with **Policy** as its source.
-3. Add **Keep secrets out of file reads** and check a direct read of a dummy `.env` path. Confirm a matching action is blocked and other rules remain present.
-4. Check an exact-tool rule and a scoped documentation-read approval on synthetic inputs.
-5. Restore a prior revision. Verify new requests use it while existing assessments remain unchanged.
-
-## Design review and verification
-
-The system-design review approved the separation of action facts, deterministic matching and rollout, then reviewed the desktop/mobile editor and rule list. Follow-up changes clarified mixed folder scope, made drafts discoverable, exposed approval restrictions before save, distinguished effective preview decisions from custom matches, and removed stale/empty-result clutter. No blocking review findings remain.
-
-Backend and browser regression tests pass, including real hook review/block/judge routing, multi-connection rules, sensitive-file signals, legacy compatibility and the complete draft/test/apply/restore workflow. TypeScript and production build pass. The local API and worker were restarted with no outstanding assessments and no custom policy activated. No external judge calls were made by the tests; these checks establish routing and implementation behavior, not classifier accuracy or production latency.
-
-
-## Workspace iteration
-
-The workflow follows the separation of workspace edits and published versions used by [Google Tag Manager](https://support.google.com/tagmanager/answer/7059647?hl=en), with an explicit preview/apply boundary comparable to [Terraform's core workflow](https://developer.hashicorp.com/terraform/intro/core-workflow). Presets live inside the rule editor; published history is actionable rather than a raw audit log. Simulation results persist across reloads and stay tied to their exact snapshot; applying an unsimulated draft is an explicit operator choice.
-
-Migration 0013 was applied locally after a SQLite backup with no outstanding assessments. The existing latest draft (8) was preserved; no policy was activated. Desktop/mobile review accepted the layout, and browser tests exercised mobile Save, Test and Apply without forced clicks.
-
-## Inspecting test results
-
-Outcome cards filter the full retained sample. Search by command, session or rule; results paginate in groups of 20. Select a request to compare its recorded assessment with the draft decision, inspect matching rules and priority, and read its saved redacted action. Older previews must be rerun to populate this evidence. Legacy rule expirations remain visible but are no longer offered in the editor. Migration 0014 preserves paused policy sets without activating them.
-
-Debug mode overrides custom policy routing and the judge on new assessments. Built-in prohibitions, incomplete-action checks and deadlines remain enforced. Disabling debug restores the configured custom policies. Existing assessments retain their original decision path.
+Policies and audit history live in local SQLite. Code running under the same OS account can bypass these controls. For verification, see [testing](testing.md); for the design history, see [RFC 006](rfc-006-safety-performance.md).

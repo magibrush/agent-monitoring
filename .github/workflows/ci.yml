@@ -12,8 +12,12 @@ permissions:
   contents: read
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
       RELAY_E2E_PORT: "18000"
@@ -33,6 +37,9 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install Python dependencies
         run: uv sync --locked --python 3.11
+      - name: Bash launcher checks
+        if: runner.os == 'Linux'
+        run: bash scripts/tests/test-launchers.sh
       - name: Backend and Lab tests
         run: uv run --locked pytest backend/tests lab/tests -q
       - name: Install frontend dependencies
@@ -43,7 +50,7 @@ jobs:
         run: npm run build
       - name: Install Chromium
         working-directory: frontend
-        run: npx playwright install chromium
+        run: npx playwright install --with-deps chromium
       - name: Main browser workflows
         working-directory: frontend
         run: npm run test:e2e
@@ -57,7 +64,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: browser-failures
+          name: browser-failures-${{ matrix.os }}
           path: |
             frontend/test-results/
             frontend/playwright-report/

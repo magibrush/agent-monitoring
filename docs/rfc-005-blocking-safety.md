@@ -1,5 +1,7 @@
 # RFC 005: Blocking Haiku evaluation and safety visualization
 
+> Historical design record. Setup, UI, and timing details may have changed. See [current setup](setup.md), [architecture](architecture.md), and [usage](usage-reference.md). Test results below belong to this milestone.
+
 Implemented 18 September 2026. Supersedes RFC 004's advisory-only gate design.
 
 Updated 19 September: [human review](human-review.md) adds a distinct awaiting

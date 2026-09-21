@@ -1,5 +1,7 @@
 # RFC 007: Automated incident investigation
 
+> Historical design record. Setup, UI, and timing details may have changed. See [current setup](setup.md), [architecture](architecture.md), and [usage](usage-reference.md). Test results below belong to this milestone.
+
 Implemented 20 September 2026. Extends RFC 006's operator-triage milestone.
 
 ## Value and workflow
