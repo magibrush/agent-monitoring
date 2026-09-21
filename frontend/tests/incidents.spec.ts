@@ -43,7 +43,7 @@ test("automatic flagged allowance explains the conversation, outcome and cited n
     ).toBeVisible();
     await expect(detail.locator(".incident-severity")).toHaveText([
       "Medium",
-      "Medium",
+      "Medium risk",
     ]);
     await expect(detail).toContainText("Git then rejected the push");
     await expect(
@@ -54,13 +54,16 @@ test("automatic flagged allowance explains the conversation, outcome and cited n
     ).toContainText("leave main alone");
     await expect(
       detail.locator(".incident-conversation").first(),
-    ).toContainText("Release confirmed");
+    ).toContainText("Gave the agent permission to continue.");
     await expect(
       detail.locator(".incident-conversation").first(),
-    ).toContainText("Execution: failed");
+    ).toContainText("Action failed");
     await expect(
       detail.getByText("Notes and activity", { exact: true }),
     ).toHaveCount(0);
+    await expect(detail.locator(".incident-timeline")).not.toHaveAttribute("open");
+    await page.screenshot({ path: "../data/qa/incident-summary-desktop.png", fullPage: true });
+    await detail.locator(".incident-timeline > summary").click();
     const context = detail.locator(".incident-context details").first();
     const contextText = context.getByText(
       "I'll update the guide and push the docs-refresh branch.",
@@ -87,8 +90,11 @@ test("automatic flagged allowance explains the conversation, outcome and cited n
     });
     await detail.locator(".incident-citations button").first().click();
     await expect(
-      detail.locator(".incident-conversation .highlighted"),
+      detail.getByRole("region", { name: /Evidence .* preview/ }),
     ).toHaveCount(1);
+    await expect(detail.getByRole("region", { name: /Evidence .* preview/ })).toBeFocused();
+    await detail.getByRole("button", { name: "Close evidence preview" }).click();
+    await expect(detail.locator(".incident-citations button").first()).toBeFocused();
     await page.setViewportSize({ width: 390, height: 844 });
     expect(
       await page.evaluate(
@@ -230,8 +236,9 @@ test("missing credentials and failed refresh keep evidence usable without claimi
     await page.getByRole("button", { name: "Close safety settings" }).click();
     await expect(
       detail.locator(".incident-conversation").first(),
-    ).toContainText("Release confirmed");
+    ).toContainText("Gave the agent permission to continue.");
     const context = detail.locator(".incident-context details").first();
+    await detail.locator(".incident-timeline > summary").click();
     const userRequest = context.getByText(/leave main alone/);
     await expect(userRequest).toBeHidden();
     await context.locator("summary").focus();

@@ -11,7 +11,7 @@ export default defineConfig({
     launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE },
   },
   webServer: {
-    command: `${process.platform === "win32" ? ".venv\\Scripts\\python.exe" : ".venv/bin/python"} -m backend.demo --no-browser --port ${port}`,
+    command: `${process.platform === "win32" ? ".venv\\Scripts\\python.exe" : ".venv/bin/python"} -m backend.tests.serve_demo_e2e --no-browser --port ${port}`,
     cwd: "..",
     url: `http://127.0.0.1:${port}/api/health`,
     reuseExistingServer: false,

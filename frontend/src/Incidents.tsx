@@ -6,14 +6,13 @@ import {
   CheckCircle2,
   FolderSearch,
   Sparkles,
-  ArrowDown,
+  X,
   Archive,
   RotateCcw,
 } from "lucide-react";
 import { api, json, type Connection } from "./api";
 import { Modal } from "./ui";
 import { ActionDetail, currentOutcome, type Action } from "./SafetyView";
-import { DecisionStatus } from "./DecisionStatus";
 
 type IncidentStatus = "new" | "investigating" | "resolved";
 type Incident = {
@@ -374,7 +373,7 @@ function evidenceText(event: Evidence) {
   return event.text;
 }
 
-export function Severity({ level }: { level: string }) {
+export function Severity({ level, risk = false }: { level: string; risk?: boolean }) {
   const safe = ["low", "medium", "high", "critical"].includes(level)
     ? level
     : "medium";
@@ -384,6 +383,7 @@ export function Severity({ level }: { level: string }) {
       title="Potential impact, separate from whether the action was allowed or blocked."
     >
       {safe[0].toUpperCase() + safe.slice(1)}
+      {risk && " risk"}
     </span>
   );
 }
@@ -396,7 +396,15 @@ function AttentionDetail({
 }: AttentionProps & { id: string }) {
   const [offset, setOffset] = useState(0),
     [selected, setSelected] = useState<number | null>(null),
-    [highlight, setHighlight] = useState<number | null>(null);
+    [evidence, setEvidence] = useState<Evidence | null>(null);
+  const citationOrigin = useRef<HTMLButtonElement | null>(null);
+  const preview = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (evidence) {
+      preview.current?.focus({ preventScroll: true });
+      preview.current?.scrollIntoView({ block: "center", behavior: "instant" });
+    }
+  }, [evidence]);
   const query = useQuery({
     queryKey: ["incidents", id, offset],
     queryFn: () => api<Detail>(`/safety/incidents/${id}?offset=${offset}`),
@@ -418,32 +426,19 @@ function AttentionDetail({
             row?.timeline.events.find((e) => e.event_id === eventId) ??
             row?.analysis.evidence?.events.find((e) => e.event_id === eventId);
           if (!event) return null;
-          return row?.timeline.events.some((e) => e.event_id === eventId) ? (
+          return (
             <button
               key={eventId}
               className="text-button evidence-reference"
-              onClick={() => {
-                setHighlight(eventId);
-                document
-                  .getElementById(`incident-event-${eventId}`)
-                  ?.focus({ preventScroll: true });
-                document
-                  .getElementById(`incident-event-${eventId}`)
-                  ?.scrollIntoView({ block: "center", behavior: "smooth" });
+              aria-expanded={evidence?.event_id === eventId}
+              aria-controls="incident-evidence-preview"
+              onClick={(e) => {
+                citationOrigin.current = e.currentTarget;
+                setEvidence(event);
               }}
             >
               Evidence {eventId}
-              <ArrowDown size={11} />
             </button>
-          ) : (
-            <a
-              key={eventId}
-              className="text-button evidence-reference"
-              href={`#explorer?session=${encodeURIComponent(event.session_id)}&event=${eventId}`}
-            >
-              Evidence {eventId}
-              <ArrowUpRight size={11} />
-            </a>
           );
         })}
       </span>
@@ -477,27 +472,47 @@ function AttentionDetail({
     if (context && previous?.context) previous.events.push(event);
     else timelineParts.push({ context, events: [event] });
   }
-  function renderEvent(event: Evidence) {
+  function renderEvent(event: Evidence, inPreview = false) {
+    const receipt = event.gate?.returned_at ? event.gate.receipt_decision : undefined;
+    const execution = event.execution?.hook_state;
+    const finished = ["succeeded", "completed", "failed"].includes(execution ?? "");
+    const outcome = receipt === "deny" && finished
+      ? { title: "Conflicting records", text: "Relay denied permission, but the agent also reported a result. Check the conversation.", tone: "uncertain" }
+      : receipt === "deny"
+        ? { title: "Blocked by Relay", text: "Relay denied permission for this action.", tone: "blocked" }
+        : finished
+          ? { title: execution === "failed" ? "Action failed" : execution === "succeeded" ? "Action succeeded" : "Action completed", text: execution === "failed" ? "The agent reported an error while running this action." : "The agent reported that this action finished.", tone: execution === "failed" ? "uncertain" : "completed" }
+          : receipt === "pass"
+            ? { title: "Allowed to continue", text: "Relay gave permission. No result has been recorded yet.", tone: "completed" }
+            : event.gate?.status === "awaiting_review"
+              ? { title: "Waiting for your approval", text: "Approve or deny this request in Safety.", tone: "uncertain" }
+              : event.gate?.mode === "shadow"
+                ? { title: "Observed only", text: "Relay recorded this request without stopping it. No result has been recorded yet.", tone: "neutral" }
+                : { title: "Outcome unknown", text: "Relay has not recorded whether this action was allowed or blocked.", tone: "neutral" };
+    const source = event.assessment?.source === "policy" ? "Policy rule"
+      : event.assessment?.source === "rules" ? "Built-in rule"
+      : event.assessment?.source === "debug" ? "Test setting"
+      : analysis?.model === "scripted-demo" ? "Scripted demo" : "AI assessment";
     return (
       <li
         key={event.event_id}
-        id={`incident-event-${event.event_id}`}
-        data-tour={event.assessment?.recommendation === "review" ? "review-request" : undefined}
+        id={inPreview ? undefined : `incident-event-${event.event_id}`}
+        data-tour={!inPreview && event.assessment?.recommendation === "review" ? "review-request" : undefined}
         tabIndex={-1}
-        className={`${event.flagged ? "flagged" : ""} ${highlight === event.event_id ? "highlighted" : ""}`}
+        className={event.flagged ? "flagged" : ""}
       >
         <div className="incident-event-heading">
-          {citedIds.has(event.event_id) ? <span className="evidence-label">Evidence {event.event_id}</span> : <span className="context-record-label">{event.flagged ? "Flagged record" : "Context"}</span>}
+          {!inPreview && (citedIds.has(event.event_id) ? <span className="evidence-label">Evidence {event.event_id}</span> : <span className="context-record-label">{event.flagged ? "Recorded action" : "Context"}</span>)}
           <strong>
             {event.kind === "tool_call"
-              ? "Tool request"
+              ? "Requested action"
               : event.kind === "tool_result"
-                ? "Tool result"
+                ? "Action result"
                 : event.role === "user"
                   ? "User asked"
                   : "Agent said"}
           </strong>
-          {event.flagged && <span className="incident-suspicion">Flagged</span>}
+          {event.assessment && <span className="evidence-risk"><Severity risk level={event.assessment.severity || event.assessment.risk || "medium"} /></span>}
           <time>{new Date(event.occurred_at).toLocaleTimeString()}</time>
         </div>
         {row!.session_count > 1 && <small>{event.session_title}</small>}
@@ -505,67 +520,24 @@ function AttentionDetail({
           <pre className="incident-event-text">{evidenceText(event)}</pre>
           {event.truncated && <div className="incident-truncation" role="img" aria-label="Content truncated; open in conversation to read more" title="Content truncated"><span aria-hidden="true">&#8226;&#8226;&#8226;</span></div>}
         </div>
-        {event.assessment && (
-          <div className="incident-event-assessment">
-            <Severity
-              level={
-                event.assessment.recommendation === "review" ||
-                event.assessment.recommendation === "deny"
-                  ? event.assessment.severity === "critical"
-                    ? "critical"
-                    : "high"
-                  : event.assessment.severity ||
-                    event.assessment.risk ||
-                    "medium"
-              }
-            />
+        {event.assessment && <>
+          <section className="evidence-assessment" aria-label="Safety assessment">
+            <div className="evidence-assessment-heading"><strong>Why this matters</strong><span>{source}</span></div>
             <p>{event.assessment.reason}</p>
+          </section>
+          <div className={`evidence-outcome ${outcome.tone}`} data-tour={!inPreview && event.assessment.recommendation === "review" ? "review-decision" : undefined}>
+            <strong>{outcome.title}</strong>
+            <p>{outcome.text}</p>
           </div>
-        )}
-        {event.assessment && (
-          <div className="incident-event-outcome" data-tour={event.assessment.recommendation === "review" ? "review-decision" : undefined}>
-            <span className="incident-outcome-stage">
-              {event.assessment.source === "policy"
-                ? "Policy"
-                : event.assessment.source === "rules"
-                  ? "Built-in rules"
-                  : "Judge"}
-              {" "}<DecisionStatus value={event.assessment.recommendation}>
-              {event.assessment.recommendation === "allow"
-                ? "allow"
-                : event.assessment.recommendation === "review"
-                  ? "review requested"
-                  : event.assessment.recommendation === "deny"
-                    ? "block recommended"
-                    : "no verdict"}
-              </DecisionStatus>
-            </span>
-            <DecisionStatus value={event.gate?.mode === "shadow" ? "shadow" : event.gate?.returned_at ? event.gate.receipt_decision : event.gate?.status === "awaiting_review" ? "review" : undefined}>
-              {event.gate?.mode === "shadow"
-                ? "Shadow assessment · did not hold this request"
-                : event.gate?.returned_at &&
-                    event.gate.receipt_decision === "pass"
-                  ? "Release confirmed"
-                  : event.gate?.returned_at &&
-                      event.gate.receipt_decision === "deny"
-                    ? "Block confirmed"
-                    : event.gate?.status === "awaiting_review"
-                      ? "Waiting for approval"
-                      : "No release receipt"}
-            </DecisionStatus>
-            <DecisionStatus value={event.execution?.hook_state}>
-              Execution:{" "}
-              {(
-                {
-                  succeeded: "succeeded",
-                  failed: "failed",
-                  completed: "completed",
-                  requested: "not confirmed",
-                } as Record<string, string>
-              )[event.execution?.hook_state || ""] || "not confirmed"}
-            </DecisionStatus>
-          </div>
-        )}
+          <details className="evidence-decision-details">
+            <summary>Decision details</summary>
+            <dl>
+              <div><dt>Safety review</dt><dd>{event.assessment.recommendation === "deny" ? "Recommended stopping this action." : event.assessment.recommendation === "review" ? "Requested a person's approval before continuing." : event.assessment.recommendation === "allow" ? "Recommended allowing this action." : "No recommendation was recorded."}</dd></div>
+              <div><dt>Relay response</dt><dd>{receipt === "deny" ? "Told the agent to stop this action." : receipt === "pass" ? "Gave the agent permission to continue." : event.gate?.mode === "shadow" ? "Observation only: Relay did not control permission for this action." : event.gate?.status === "awaiting_review" ? "Waiting for you to approve or deny the request in Safety." : "No response to the agent has been recorded."}</dd></div>
+              <div><dt>Execution record</dt><dd>{execution === "failed" ? "The agent reported that the action failed." : execution === "succeeded" ? "The agent reported that the action succeeded." : execution === "completed" ? "The agent reported completion, without a success or failure status." : "No result was recorded. This does not prove whether the action ran."}</dd></div>
+            </dl>
+          </details>
+        </>}
         <a
           className="text-button"
           href={`#explorer?session=${encodeURIComponent(event.session_id)}&event=${event.event_id}`}
@@ -604,7 +576,7 @@ function AttentionDetail({
           <h2 ref={heading} tabIndex={-1}>
             {row.headline}
           </h2>
-          <p className="incident-reason">{row.explanation}</p>
+          {!ready && <p className="incident-reason">{row.explanation}</p>}
           <div className="incident-outcomes">
             <span>
               <strong>{row.action_count}</strong>{" "}
@@ -683,6 +655,10 @@ function AttentionDetail({
                 )}
               </>
             )}
+            {evidence && <div className="incident-evidence-preview" id="incident-evidence-preview" ref={preview} tabIndex={-1} role="region" aria-label={`Evidence ${evidence.event_id} preview`}>
+              <div className="incident-section-heading"><h4>Evidence {evidence.event_id}</h4><button className="text-button" aria-label="Close evidence preview" onClick={() => { setEvidence(null); citationOrigin.current?.focus({ preventScroll: true }); citationOrigin.current?.scrollIntoView({ block: "nearest" }); }}><X size={16} /> Close</button></div>
+              <ol className="incident-conversation">{renderEvent(evidence, true)}</ol>
+            </div>}
           </div>
           {row.rule && (
             <button
@@ -711,8 +687,10 @@ function AttentionDetail({
               </button>
             </div>
           )}
+          <details className="incident-timeline">
+          <summary>Conversation timeline <span className="attention-meta"> · {row.timeline.events.length} records</span></summary>
           <div className="incident-section-heading">
-            <h3>Conversation timeline</h3>
+            <h3>Recorded activity</h3>
             <small>
               {row.session_count}{" "}
               {row.session_count === 1 ? "session" : "sessions"}
@@ -733,7 +711,7 @@ function AttentionDetail({
                       {part.events.length === 1 ? "record" : "records"}
                     </summary>
                     <ol className="incident-conversation">
-                      {part.events.map(renderEvent)}
+                      {part.events.map((event) => renderEvent(event))}
                     </ol>
                   </details>
                 </li>
@@ -753,6 +731,7 @@ function AttentionDetail({
               No conversation records are available for this incident.
             </p>
           )}
+          </details>
           <details
             className="incident-technical"
             open={selected !== null || undefined}

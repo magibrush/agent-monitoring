@@ -3306,3 +3306,46 @@ input.settings-switch { appearance:none; position:relative; display:inline-block
   .settings-disclosure summary span { float:none; margin-left:8px; }
 }
 @media(prefers-reduced-motion:reduce) { .settings-switch, .settings-switch::before { transition:none; } }
+
+/* Focused incident reading and progressive hook setup. */
+.attention-row-copy { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.attention-row .attention-meta { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.incident-timeline { border-top:1px solid #e2e7ef; padding-top:16px; }
+.incident-timeline > summary { cursor:pointer; font-weight:600; padding:8px 0; }
+.incident-timeline[open] > summary { margin-bottom:16px; }
+.incident-evidence-preview { margin-top:18px; padding:14px; border:1px solid #aabce9; border-radius:10px; background:white; }
+.incident-evidence-preview:focus { outline:2px solid #8195db; outline-offset:3px; }
+.incident-evidence-preview h4 { margin:0; }
+.evidence-risk { display:inline-flex; align-items:center; gap:4px; font-weight:600; color:#364357; }
+.evidence-risk .incident-severity { font-size:12px; }
+.evidence-assessment { padding:14px 16px; margin:16px 0; border-left:3px solid #8296d0; border-radius:0 6px 6px 0; background:#f3f5fb; }
+.evidence-assessment-heading { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:12px; color:#35425a; }
+.evidence-assessment-heading > span { color:#61718a; font-size:11px; font-weight:400; }
+.evidence-assessment > p { margin:8px 0 0; line-height:1.6; font-size:13px; color:#38475e; }
+.evidence-outcome { margin:16px 0 10px; }
+.evidence-outcome > strong { font-size:14px; color:#364357; }
+.evidence-outcome.blocked > strong { color:#ad3045; }
+.evidence-outcome.completed > strong { color:#28624f; }
+.evidence-outcome.uncertain > strong { color:#865916; }
+.evidence-outcome > p { margin:5px 0 0; font-size:12px; line-height:1.5; color:#526176; }
+.evidence-decision-details { margin:0 0 16px; font-size:12px; }
+.evidence-decision-details > summary { cursor:pointer; color:#526176; padding:6px 0; }
+.evidence-decision-details dl { margin:6px 0; padding:12px; border:1px solid #e1e6ef; border-radius:6px; }
+.evidence-decision-details dl > div + div { margin-top:12px; }
+.evidence-decision-details dt { font-weight:600; color:#35425a; }
+.evidence-decision-details dd { margin:4px 0 0; color:#526176; line-height:1.5; }
+.incident-evidence-preview .incident-conversation > li { padding:14px 0 0; margin:0; border:0; }
+.incident-evidence-preview .incident-conversation > li::before { display:none; }
+.hook-modes { border:0; padding:0; margin:20px 0 12px; display:grid; gap:10px; }
+.hook-modes legend { font-weight:600; margin-bottom:10px; }
+.hook-modes label { display:flex; align-items:flex-start; gap:12px; border:1px solid #dce2ed; padding:14px; border-radius:10px; cursor:pointer; }
+.hook-modes label.selected { border-color:#647bc8; background:#f4f6ff; }
+.hook-modes input { margin-top:4px; accent-color:#5269b6; }
+.hook-modes small, .hook-remove small { display:block; margin-top:5px; color:#59677d; line-height:1.5; }
+.hook-mode-note { color:#59677d; font-size:13px; line-height:1.5; }
+.hook-installed { color:#28624f; font-size:13px; }
+.hook-details { margin:18px 0; }
+.hook-details summary { cursor:pointer; font-weight:500; }
+.hook-remove { display:flex; gap:16px; justify-content:space-between; align-items:center; padding:16px 0; border-top:1px solid #e2e7ef; }
+.hook-remove .danger { flex-shrink:0; color:#b42332; }
+@media(max-width:500px) { .hook-remove { flex-direction:column; align-items:stretch; } }

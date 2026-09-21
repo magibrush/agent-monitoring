@@ -53,8 +53,8 @@ async function tour(page: Page, capture: (name: string) => Promise<void>) {
   await expect(page.locator('[data-tour="review-request"]')).toContainText("git push --force");
   await coach.getByRole("button", { name: "See the review decision" }).click();
   await expect(coach.getByRole("heading", { name: "Human review was requested" })).toBeVisible();
-  await expect(page.locator('[data-tour="review-decision"]')).toContainText("review requested");
-  await expect(page.locator('[data-tour="review-decision"]')).toContainText("Block confirmed");
+  await expect(page.locator('[data-tour="review-decision"]')).toContainText("Blocked by Relay");
+  await expect(page.locator('[data-tour="review-decision"]')).toContainText("Relay denied permission for this action.");
   await expect(page.locator('[data-tour="action-open"]')).toBeHidden();
   if (page.viewportSize()!.width < 700) {
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -135,6 +135,7 @@ test("free exploration, context labels, dismissal, and reset remain available", 
   });
   await page.locator('[data-tour-nav="safety"]').click();
   await page.locator('[data-tour-incident="demo-incident-upload"]').click();
+  await page.locator(".incident-timeline > summary").click();
   const context = page.locator(".incident-context details").first();
   await context.locator("summary").click();
   await expect(context.locator(".context-record-label").first()).toHaveText(
