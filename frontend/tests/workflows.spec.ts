@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 import {
   categoricalSeries,
@@ -6,6 +6,11 @@ import {
   CHART_PALETTE,
 } from "../src/chartSeries";
 import { appendFile } from "node:fs/promises";
+
+async function openMoreFilters(page: Page) {
+  const closed = page.locator(".investigation-toggle[aria-expanded=false]");
+  if (await closed.count()) await closed.click();
+}
 
 test("connect multiple desktops, sync, aggregate, search, inspect, and pause", async ({
   page,
@@ -15,7 +20,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(
-    page.getByText("Start with a connection", { exact: true }),
+    page.getByText("Set up your first connection", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: /^Connections/ }).click();
   await page
@@ -145,9 +150,9 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   await expect(pan).not.toHaveAttribute("aria-valuenow", beforePan!);
 
   await page.getByRole("button", { name: "Reset zoom", exact: true }).click();
-  const clear = page.getByRole("button", { name: "Clear all", exact: true });
+  const clear = page.getByRole("button", { name: "Clear filters", exact: true });
   const clearBefore = await clear.boundingBox();
-  await page.locator(".advanced-filters > summary").click();
+  await openMoreFilters(page);
   await page
     .getByLabel("Session type", { exact: true })
     .selectOption("subagent");
@@ -162,7 +167,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   );
   await expect(page.locator("tbody tr")).toHaveCount(7);
   await expect(clear).toBeDisabled();
-  await page.locator(".advanced-filters > summary").click();
+  await openMoreFilters(page);
   await page.getByLabel("Include internal reviews").check();
   await expect(page.locator("tbody tr")).toHaveCount(8);
   await page.getByLabel("Include internal reviews").uncheck();
@@ -177,11 +182,11 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   await expect(page.locator(".message")).toHaveCount(1);
   await expect(page.locator(".message mark")).toHaveText("dance");
   await page.getByRole("button", { name: "Overview", exact: true }).click();
-  await page.locator(".advanced-filters > summary").click();
+  await openMoreFilters(page);
   await page.getByLabel("Search matching").selectOption("contains");
   await expect(page.locator("tbody tr")).toHaveCount(7);
   await page.getByLabel("Clear search", { exact: true }).click();
-  await page.locator(".advanced-filters > summary").click();
+  await openMoreFilters(page);
   await page.getByLabel("Search matching").selectOption("words");
   await page
     .getByLabel("Action filter", { exact: true })
@@ -197,9 +202,9 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
     "Remove-Item",
   );
   await page.getByRole("button", { name: "Overview", exact: true }).click();
-  await page.locator(".advanced-filters > summary").click();
+  await openMoreFilters(page);
   await page.getByLabel("Action filter", { exact: true }).selectOption("");
-  await page.locator(".advanced-filters > summary").click();
+  await openMoreFilters(page);
   await page.locator(".range-picker > summary").click();
   const today = new Date().toLocaleDateString("en-CA");
   await page.getByLabel("Range start", { exact: true }).fill(`${today}T00:00`);
@@ -270,6 +275,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   ).toBeVisible();
   await first.getByRole("button", { name: "Resume", exact: true }).click();
   await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await openMoreFilters(page);
   await page
     .getByLabel("Filter connection")
     .selectOption({ label: "Research workspace" });
@@ -283,6 +289,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
       .locator(".stat-value"),
   ).toHaveText("2");
   await page.getByLabel("Filter connection").selectOption("");
+  await page.getByRole("button", { name: "Filters", exact: true }).click();
   await page.getByLabel("Sort sessions").selectOption("recent");
   await expect(page.locator("tbody tr")).toHaveCount(8);
   await expect(page.locator(".recharts-surface").first()).toBeVisible();
@@ -328,7 +335,7 @@ test("connect multiple desktops, sync, aggregate, search, inspect, and pause", a
   await expect(page.locator(".signal-plot")).toHaveCount(1);
   await expect(page.locator(".sticky-controls")).toBeInViewport();
   await expect(
-    page.getByRole("button", { name: "Clear all", exact: true }),
+    page.getByRole("button", { name: "Clear filters", exact: true }),
   ).toBeInViewport();
   await page.screenshot({ path: "../data/qa/sticky-controls.png" });
   await page.evaluate(() => window.scrollTo(0, 0));

@@ -2740,6 +2740,7 @@ main {
 .time-chart-options, .time-chart-navigation { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .time-chart-options label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #667085; }
 .time-chart-options select { font-size: 12px; min-height: 32px; }
+.time-chart-options select[aria-label="Color bars by"] { width: 180px; }
 .time-chart-navigation { gap: 0; border: 1px solid #dce3ec; border-radius: 6px; overflow: hidden; }
 .time-chart-navigation button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-right: 1px solid #e5eaf1; background: white; padding: 8px; color: #526176; min-height: 32px; }
 .time-chart-navigation button:last-child { border: 0; }
@@ -2792,10 +2793,17 @@ main {
  .overview-page button.stat { padding: 12px; }
 }
 
-/* Token columns remain readable; compact lists scroll within their panel. */
+/* Only Overview needs a minimum width for its extra token columns. */
 .session-panel { min-width: 0; }
 .session-panel .table-scroll { overflow-x: auto; }
-.session-panel table { min-width: 720px; }
+.overview-page .session-panel table { min-width: 720px; }
+.explorer-layout .session-panel table { table-layout: fixed; }
+.explorer-layout .session-panel th.number { width: 72px; }
+.explorer-layout .session-link { width: 100%; min-width: 0; }
+.explorer-layout .session-link > span:last-child { flex: 1; min-width: 0; max-width: 100%; }
+.explorer-layout .session-link strong { max-width: 100%; }
+.explorer-layout .session-link small { flex-wrap: wrap; white-space: normal; overflow-wrap: anywhere; }
+.explorer-layout .session-panel td.number { overflow-wrap: anywhere; white-space: normal; }
 .safety-top-actions { display: flex; gap: 8px; }
 .review-count { background: #fff0dc; color: #8b510e; }
 .live-decisions { padding: 18px; background: #fff; border: 1px solid #e0e6ef; border-radius: 12px; }
@@ -3388,3 +3396,49 @@ input.settings-switch { appearance:none; position:relative; display:inline-block
 .hook-remove { display:flex; gap:16px; justify-content:space-between; align-items:center; padding:16px 0; border-top:1px solid #e2e7ef; }
 .hook-remove .danger { flex-shrink:0; color:#b42332; }
 @media(max-width:500px) { .hook-remove { flex-direction:column; align-items:stretch; } }
+
+/* Compact investigation bar with grouped disclosure panel. */
+.investigation-filters { padding: 12px; }
+.investigation-bar { display: flex; align-items: center; gap: 8px; }
+.investigation-query { flex: 1; min-width: 100px; height: 36px; padding: 0 10px; }
+.investigation-query input { width: 100%; min-width: 0; font-size: 12px; }
+.investigation-query input::placeholder, .investigation-field > input::placeholder { color: #8591a3; }
+.investigation-toggle { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border: 1px solid #dce3ed; border-radius: 6px; background: #fff; color: #45546c; font-size: 12px; white-space: nowrap; }
+.investigation-toggle:hover, .investigation-toggle[aria-expanded="true"] { background: #f0f4ff; color: #405cb1; border-color: #b9c7ed; }
+.filter-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; background: #536abd; color: #fff; border-radius: 9px; font-size: 10px; }
+.investigation-time { width: 190px; flex-shrink: 0; }
+.investigation-filters .investigation-time .range-picker { width: 100%; }
+.investigation-filters .investigation-time .range-picker > summary { width: 100%; height: 36px; min-width: 0; }
+.investigation-filters .investigation-time .range-picker > summary span { max-width: 155px; }
+.investigation-bar .clear-all { height: 36px; min-width: 96px; flex: 0 0 auto; padding: 0 12px; font-weight: 500; }
+.investigation-options { margin-top: 12px; border-top: 1px solid #e8edf5; padding: 16px 4px 4px; }
+.investigation-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.investigation-groups fieldset { min-width: 0; margin: 0; padding: 16px; border: 1px solid #e5eaf3; border-radius: 10px; background: linear-gradient(145deg, #f8faff, #fff); }
+.investigation-groups legend { padding: 0 6px; color: #586da2; font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+.investigation-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; color: #526176; font-size: 11px; font-weight: 500; }
+.investigation-field + .investigation-field, .investigation-internal { margin-top: 16px; }
+.investigation-field select, .investigation-field > input { width: 100%; max-width: none; min-width: 0; height: 38px; border: 1px solid #dce3ef; border-radius: 7px; background-color: #fff; font-size: 12px; font-weight: 400; color: #35445c; }
+.investigation-field > input { padding: 0 10px; }
+.investigation-internal label { display: flex; align-items: center; gap: 7px; color: #35445c; font-size: 12px; }
+.investigation-internal input { accent-color: #536abd; }
+.investigation-internal p { margin: 6px 0 0; color: #768297; font-size: 11px; line-height: 1.5; }
+.investigation-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 16px; }
+.investigation-chips > span { color: #657186; font-size: 11px; margin-right: 4px; }
+.investigation-chips button { display: inline-flex; gap: 6px; max-width: 100%; min-height: 28px; padding: 4px 9px; border: 1px solid #dce4f4; border-radius: 14px; background: #f1f5fd; color: #405b93; font-size: 11px; }
+.investigation-chips button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+.investigation-chips button svg { flex-shrink: 0; }
+.investigation-chips button:hover { background: #e4ebfa; border-color: #8d9fca; }
+.investigation-filters :is(button, summary, input, select):focus-visible { outline: 2px solid #536abd; outline-offset: 3px; }
+.sticky-controls:has(.investigation-options) { position: static; }
+@media (max-width: 1100px), (max-height: 800px) {
+  .sticky-controls:has(.investigation-filters) { position: static; }
+}
+@media (max-width: 760px) {
+  .investigation-groups { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .investigation-bar { flex-wrap: wrap; }
+  .investigation-query { flex-basis: 100%; }
+  .investigation-time { flex: 1; width: auto; min-width: 110px; }
+  .investigation-toggle { padding: 0 10px; }
+  .investigation-bar .clear-all { padding: 0 8px; min-width: 85px; }
+  .investigation-filters .range-popover { position: fixed; left: 20px; right: 20px; top: 140px; width: auto; }
+}
