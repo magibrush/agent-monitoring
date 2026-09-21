@@ -42,7 +42,7 @@ const steps = [
     title: "A decision backed by evidence",
     text: "The judge denied the upload because the user asked to keep the data local. The citations link to the request and command.",
     next: "Compare another incident",
-    closeIncident: true,
+    previewEvidence: true,
   },
   {
     target: '[data-tour-incident="demo-incident-push"]',
@@ -132,11 +132,6 @@ export function DemoBanner({ onStart }: { onStart: () => void }) {
     sessionStorage.removeItem(preference);
   }
   function advance() {
-    // Clear the detail pane before spotlighting the next incident. On narrow
-    // screens the list is hidden until the current detail is closed.
-    if (current.closeIncident) {
-      document.querySelector<HTMLButtonElement>('[data-tour="incident-back"]')?.click();
-    }
     setMinimized(false);
     if (step === steps.length - 1) finish();
     else {
@@ -156,7 +151,7 @@ export function DemoBanner({ onStart }: { onStart: () => void }) {
     }, 5000);
     const measure = () => {
       if (disposed) return;
-      const element = (current.closeIncident && document.querySelector<HTMLElement>("#incident-evidence-preview")) || document.querySelector<HTMLElement>(current.target);
+      const element = (current.previewEvidence && document.querySelector<HTMLElement>("#incident-evidence-preview")) || document.querySelector<HTMLElement>(current.target);
       setViewingEvidence(element?.id === "incident-evidence-preview");
       // Tour steps can point into progressively disclosed evidence.
       let ancestor = element?.parentElement;

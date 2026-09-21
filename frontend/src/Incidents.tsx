@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft,
   ArrowUpRight,
   CheckCircle2,
   FolderSearch,
@@ -194,6 +193,12 @@ export function Incidents(props: AttentionProps) {
         </Modal>
       )}
       <div className="attention-filters" role="group" aria-label="Filter incidents">
+        <input
+          aria-label="Find an item"
+          placeholder="Find an item…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
         <select
           aria-label="Attention status"
           value={status}
@@ -214,12 +219,6 @@ export function Incidents(props: AttentionProps) {
           <option value="medium">Medium</option>
           <option value="low">Low</option>
         </select>
-        <input
-          aria-label="Find an item"
-          placeholder="Find an item…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
         <select
           aria-label="Attention connection"
           value={connection}
@@ -391,7 +390,6 @@ export function Severity({ level, risk = false }: { level: string; risk?: boolea
 
 function AttentionDetail({
   id,
-  open,
   reviewRule,
   settings,
 }: AttentionProps & { id: string }) {
@@ -555,10 +553,6 @@ function AttentionDetail({
       className="attention-detail inspection-detail"
       aria-label="Incident details"
     >
-      <button className="text-button" data-tour="incident-back" onClick={() => open(null)}>
-        <ArrowLeft size={14} />
-        Back to incidents
-      </button>
       {query.error && (
         <p className="error" role="alert">
           {query.error.message}
