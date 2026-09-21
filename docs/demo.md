@@ -1,10 +1,51 @@
 # Guided demo
 
+## The three-minute tour
+
+Relay brings activity from multiple coding agents into one dashboard, then links concerning tool requests to the conversation that explains them. You can view the screenshots below without installing anything. A video walkthrough is still a release-preparation item.
+
+For the interactive version, run `powershell -ExecutionPolicy Bypass -File scripts/demo.ps1` from the repository root. Windows, uv, Node.js 22.12+, and npm 10+ are required. The launcher uses Python 3.11 through uv, installs locked dependencies, and opens **http://127.0.0.1:8001**. No coding agent or API key is needed; the first build requires internet access.
+
+The first visit starts a spotlight tour: the surrounding UI dims, the relevant control is highlighted, and a coaching card explains the next interaction. Navigation steps advance only after you use the actual application control.
+
+1. **Overview:** inspect the highlighted activity totals, then continue. The tour scrolls to the sessions table.
+2. **Open a session:** click the highlighted **Count customer records locally** session. Explorer opens its real conversation view.
+3. **Read and decide:** inspect the user's local-only request and the proposed upload, then answer the allow/deny question. Use **Read conversation** to move the coaching card aside, then **Show guide** to answer. Answers provide feedback without changing the saved decision.
+4. **Investigate:** click **Safety** in the app navigation, then the highlighted upload incident. Inspect the scripted analysis and cited evidence. Only cited records have evidence numbers; surrounding messages are labeled **Context**.
+5. **Compare human review:** choose **Compare another incident**, then click the highlighted force-push incident. The guide explains why the command needs permission and highlights **review requested** and **Block confirmed** on the tool call. The recorded human decision was a denial; no technical details need to be expanded.
+6. **Connections and free exploration:** click **Connections** in the app navigation, then **Finish and explore**. The overlay disappears and the application is yours to explore. Dismiss an incident, search conversations, or inspect another action.
+
+Use **Explore freely**, the close button, or Escape to exit at any point. **Restart guided tour** returns to Overview. **Reset demo** restores sample data and starts the tour again. Completing or exiting the tour is remembered for the current browser tab, so refreshing does not interrupt free exploration.
+
+All commands are inert data. All assessments, analysis, and execution records are scripted. This demonstrates the review interface, not live model accuracy or real blocking. Demo mode disables transcript discovery, collection, hook setup, policy changes, and model calls, including when credentials already exist. Sample connections remain paused by design. The normal monitoring database is not used.
+
+## Launch options
+
+```powershell
+# Use another port, or leave the browser closed.
+powershell -ExecutionPolicy Bypass -File scripts/demo.ps1 -Port 8002 -NoBrowser
+
+# After dependencies and the dashboard are built, restart quickly.
+data/demo/venv/Scripts/python.exe -m backend.demo
+```
+
+Ctrl+C stops the server. Each launch resets **only** `data/demo/monitor.db`; the in-app reset does the same. Do not keep edits here that you want to retain. The launcher keeps its Python environment in `data/demo/venv`, separate from the development environment. The demo ignores `DATABASE_URL`. Run one demo server per checkout; its database is shared by demo launches and demo browser tests.
+
+If the launcher reports an old Node version, install a compatible version and reopen PowerShell. If the port is occupied, stop the existing demo or choose another port. If dependencies fail to download, check network access and rerun the launcher. Standard Node and uv installations are used; the demo launcher does not search for developer-specific runtimes.
+
+To connect your real agent, stop the demo and follow [normal setup](setup.md). That application uses port 8000 and separate storage. [Relay Lab](../lab/README.md) is the next step for experimenting with scripted pipeline scenarios.
+
 ## Screenshots
 
-The [Overview screenshot](images/overview.png) shows synthetic conversations from the browser workflow tests. The incident below uses a scripted assessment and analysis fixture; no live model was called for the screenshot.
+These captures come from the main-dashboard demo described above. All visible activity, assessments, analysis, and token counts are synthetic; no live model was called.
 
-![Incident investigation with a recorded outcome, explanation, and conversation evidence](images/incident.png)
+![Guided spotlight tour highlighting the real Overview controls](images/demo-guided-tour.png)
+
+![Sample dashboard with four fictional sessions across three providers](images/demo-overview.png)
+
+![Denied upload investigation with scripted analysis and conversation evidence](images/demo-incident.png)
+
+![Sample provider cards showing fictional agent sources](images/demo-connections.png)
 
 ## Key-free demo: inspect a synthetic safety decision
 
@@ -63,4 +104,4 @@ For a recording that includes real blocking, first configure the optional worker
 - **40–65 seconds:** show the synthetic deny scenario in Lab, open its evidence, and distinguish a decision from execution.
 - **65–90 seconds:** explain recoverable ingestion, durable decision deadlines, and one limitation: local SQLite contention or imperfect model judgments.
 
-Before publishing additional screenshots or video, use only synthetic content and inspect every visible path, name, token, and conversation. A main-dashboard sample-data launcher and a public walkthrough recording remain release-preparation items; the Lab demo above is available now.
+Before publishing additional screenshots or video, use only synthetic content and inspect every visible path, name, token, and conversation. Use the main-dashboard demo above for repeatable recordings. A public walkthrough recording remains a release-preparation item.

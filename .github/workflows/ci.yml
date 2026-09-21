@@ -50,6 +50,9 @@ jobs:
       - name: Lab browser workflows
         working-directory: frontend
         run: npx playwright test --config playwright.lab.config.ts
+      - name: Synthetic demo walkthrough
+        working-directory: frontend
+        run: npx playwright test --config playwright.demo.config.ts
       - name: Upload browser failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
