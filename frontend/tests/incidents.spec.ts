@@ -1,11 +1,12 @@
 import { test, expect } from "@playwright/test";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { python } from "./python";
 
 function seed(kind = "") {
   return JSON.parse(
     execFileSync(
-      path.resolve("../.venv/Scripts/python.exe"),
+      python,
       ["-m", "backend.tests.seed_attention_e2e", ...(kind ? [kind] : [])],
       { cwd: path.resolve(".."), encoding: "utf8" },
     ),
@@ -14,7 +15,7 @@ function seed(kind = "") {
 async function cleanup(request: any, fixture: any) {
   await request.delete(`/api/connections/${fixture.connection}`);
   execFileSync(
-    path.resolve("../.venv/Scripts/python.exe"),
+    python,
     [
       "-m",
       "backend.tests.seed_attention_e2e",

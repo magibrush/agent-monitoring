@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import or_, select, update
+from sqlalchemy import and_, or_, select, update
 
 from backend import safety
 from backend.db import (ChatSession, Connection, Event, Incident, IncidentAnalysis,
@@ -86,15 +86,21 @@ def evidence_bundle(db, incident):
                 selected[recorded.id] = recorded
     for event, _, _ in links[:20]:
         user = db.scalar(select(Event).where(Event.session_id == event.session_id,
-            Event.role == "user", Event.occurred_at <= event.occurred_at)
+            Event.role == "user", or_(Event.occurred_at < event.occurred_at,
+                and_(Event.occurred_at == event.occurred_at, Event.id <= event.id)))
             .order_by(Event.occurred_at.desc(), Event.id.desc()).limit(1))
         if user and len(selected) < MAX_EVENTS:
             selected[user.id] = user
     for event, _, _ in links[:20]:
+        # Match the timestamp/id ordering even when multiple records share a clock tick.
         neighbors = list(db.scalars(select(Event).where(Event.session_id == event.session_id,
-            Event.occurred_at <= event.occurred_at).order_by(Event.occurred_at.desc(), Event.id.desc()).limit(4)))
+            or_(Event.occurred_at < event.occurred_at,
+                and_(Event.occurred_at == event.occurred_at, Event.id <= event.id)))
+            .order_by(Event.occurred_at.desc(), Event.id.desc()).limit(4)))
         neighbors += list(db.scalars(select(Event).where(Event.session_id == event.session_id,
-            Event.occurred_at > event.occurred_at).order_by(Event.occurred_at, Event.id).limit(2)))
+            or_(Event.occurred_at > event.occurred_at,
+                and_(Event.occurred_at == event.occurred_at, Event.id > event.id)))
+            .order_by(Event.occurred_at, Event.id).limit(2)))
         for other in neighbors:
             if len(selected) < MAX_EVENTS:
                 selected[other.id] = other

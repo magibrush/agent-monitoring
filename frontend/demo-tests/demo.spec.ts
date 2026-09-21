@@ -57,6 +57,10 @@ async function tour(page: Page, capture: (name: string) => Promise<void>) {
   await expect(page.locator('[data-tour="review-decision"]')).toContainText("Block confirmed");
   await expect(page.locator('[data-tour="action-open"]')).toBeHidden();
   if (page.viewportSize()!.width < 700) {
+    // The heading updates before the tour's animation-frame measurement and
+    // initial scroll. Wait for positioning before simulating a visitor scroll.
+    await expect(coach.getByRole("status")).toHaveCount(0);
+    await expect(page.locator('[data-tour="review-decision"]')).toBeInViewport();
     await page.evaluate(() => window.scrollTo(0, 0));
     await expect(coach.getByRole("status")).toContainText("Highlight below");
     await expect(coach).not.toContainText("Finding the highlighted control");
