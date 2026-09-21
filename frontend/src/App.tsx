@@ -9,9 +9,7 @@ import {
   MessageSquare,
   Plug,
   Plus,
-  Search,
   ShieldCheck,
-  Terminal,
   X,
 } from "lucide-react";
 import { api, type Connection, type Metrics, type Session } from "./api";
@@ -19,10 +17,12 @@ import { ConnectionDialog, Connections, Empty, Provider } from "./ui";
 import { useSafetyNotifications } from "./useSafetyNotifications";
 import { SafetyWorkspace } from "./SafetyView";
 import { Timeline } from "./Timeline";
-import { FIT, TimeRange, rangeQuery, type Range } from "./TimeRange";
-import { ACTIONS, Conversation, Highlight } from "./Conversation";
+import { FIT, rangeQuery, type Range } from "./TimeRange";
+import { Conversation, Highlight } from "./Conversation";
 import { DemoBanner } from "./DemoBanner";
 import { DemoConnections } from "./DemoConnections";
+
+import { DEFAULT_FILTERS, InvestigationFilters, type InvestigationFilterValues } from "./InvestigationFilters";
 
 type Page = "Overview" | "Safety" | "Explorer" | "Connections";
 const routePage = (): Page => location.hash.startsWith("#safety") ? "Safety" : location.hash.startsWith("#explorer") ? "Explorer" : location.hash === "#connections" ? "Connections" : "Overview";
@@ -34,18 +34,12 @@ export default function App() {
   const [chartRange, setChartRange] = useState<Metrics["viewport"] | null>(null);
   const [sessionColorBy, setSessionColorBy] = useState("activity");
   const [chartKind, setChartKind] = useState<"sessions" | "messages" | "actions">("actions");
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const { connection, sessionType, search, mode, scope, action, tool, internal } = filters;
   const [page, setPage] = useState<Page>(routePage),
     [chartColorBy, setChartColorBy] = useState("activity"),
-    [sessionType, setSessionType] = useState(""),
-    [connection, setConnection] = useState(""),
     [range, setRange] = useState<Range>(FIT),
-    [search, setSearch] = useState(""),
     [query, setQuery] = useState(""),
-    [mode, setMode] = useState("words"),
-    [scope, setScope] = useState("messages"),
-    [action, setAction] = useState(""),
-    [tool, setTool] = useState(""),
-    [internal, setInternal] = useState(false),
     [sort, setSort] = useState("recent"),
     [offset, setOffset] = useState(0),
     [opened, setOpened] = useState<Session | null>(null),
@@ -77,7 +71,7 @@ export default function App() {
         setOpened(null);
         setDetailKind(args.get("kind") === "tool_call" ? "tool_call" : args.get("kind") === "message" ? "message" : "");
         if (!id) return;
-        setRange(FIT); setChartRange(null); setSearch(""); setQuery(""); setAction(""); setTool("");
+        setRange(FIT); setChartRange(null); setFilters(DEFAULT_FILTERS); setQuery("");
         void Promise.all([api<{ session: Session & { connection_id: string } }>(`/sessions/${encodeURIComponent(id)}/events?limit=1`), api<Connection[]>("/connections")]).then(([data, sources]) => {
           if (location.hash !== hash) return;
           const source = sources.find(c => c.id === data.session.connection_id);
@@ -157,22 +151,26 @@ export default function App() {
   const refresh = () => {
     void client.invalidateQueries();
   };
+  function changeFilters(patch: Partial<InvestigationFilterValues>) {
+    setFilters(current => {
+      const next = { ...current, ...patch };
+      if (next.sessionType) next.internal = false;
+      return next;
+    });
+  }
+  function resetChartZoom() {
+    setChartReset(n => n + 1);
+    setChartRange(null);
+  }
   function clearFilters() {
     setChartReset(n => n + 1);
-    setConnection("");
-    setSessionType("");
+    setFilters(DEFAULT_FILTERS);
     setSort("recent");
     setOffset(0);
     closeSession();
     setRange(FIT);
     setChartRange(null);
-    setSearch("");
     setQuery("");
-    setAction("");
-    setTool("");
-    setInternal(false);
-    setMode("words");
-    setScope("messages");
   }
   function updateRoute(url: string, replace = false) {
     if (location.hash === url) return;
@@ -198,7 +196,7 @@ export default function App() {
   }
   const hasFilters = Boolean(
     connection ||
-    range.start || chartRange ||
+    range.start || range.end || range.lastSeconds || chartRange ||
     search ||
     action ||
     tool ||
@@ -292,146 +290,41 @@ export default function App() {
               notify={setNotice}
               add={() => setAdding(true)}
               removed={(id) => {
-                if (connection === id) setConnection("");
+                if (connection === id) setFilters(f => ({ ...f, connection: "" }));
                             setOpened(null);
                 setOffset(0);
                 client.removeQueries({ queryKey: ["events"] });
               }}
             />
+          ) : connections.isSuccess && connections.data.length === 0 ? (
+            <section className="panel">
+              <Empty
+                title="Set up your first connection"
+                text="Go to Connections to connect your agent and start monitoring conversations and activity."
+                action={
+                  <button className="primary" onClick={() => changePage("Connections")}>
+                    <Plug size={16} />
+                    Go to Connections
+                  </button>
+                }
+              />
+            </section>
           ) : (
             <>
               {page !== "Safety" && <div className="sticky-controls">
-                <section className="filter-panel">
-                  <div className="filter-row">
-                    <label className="search global-search">
-                      <Search size={16} />
-                      <input
-                        aria-label="Search conversations"
-                        placeholder="Search messages or session titles…"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                      />
-                      {search && (
-                        <button
-                          aria-label="Clear search"
-                          onClick={() => {
-                            setSearch("");
-                            setQuery("");
-                          }}
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
-                    </label>
-
-                    <select
-                      aria-label="Filter connection"
-                      value={connection}
-                      onChange={(e) => setConnection(e.target.value)}
-                    >
-                      <option value="">All connections</option>
-                      {connections.data?.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                    <TimeRange value={chartRange ? { ...chartRange, label: "Custom range" } : range} onChange={r => { setChartReset(n => n + 1); setChartRange(null); setRange(r); }} />
-                    <details className="advanced-filters">
-                      <summary>
-                        More filters
-                        {[
-                          Boolean(tool),
-                          Boolean(action),
-                          Boolean(sessionType),
-                          internal,
-                          mode !== "words",
-                          scope !== "messages",
-                        ].filter(Boolean).length
-                          ? ` (${[Boolean(tool), Boolean(action), Boolean(sessionType), internal, mode !== "words", scope !== "messages"].filter(Boolean).length})`
-                          : ""}
-                      </summary>
-                      <div className="advanced-popover">
-                    <select
-                      aria-label="Session type"
-                      value={sessionType}
-                      onChange={(e) => setSessionType(e.target.value)}
-                    >
-                      <option value="">Type: All</option>
-                      <option value="conversation">Type: Conversations</option>
-                      <option value="subagent">Type: Subagents</option>
-                    </select>
-                    <select
-                      aria-label="Action filter"
-                      value={action}
-                      onChange={(e) => setAction(e.target.value)}
-                    >
-                      {ACTIONS.map(([v, l]) => (
-                        <option value={v} key={v}>
-                          {l}
-                        </option>
-                      ))}
-                    </select>
-
-                        {" "}
-                        <label className="advanced-field">
-                          <span>Search in</span>
-                          <select
-                            aria-label="Search scope"
-                            value={scope}
-                            onChange={(e) => setScope(e.target.value)}
-                          >
-                            <option value="messages">Messages + titles</option>
-                            <option value="actions">
-                              Tool arguments + output
-                            </option>
-                            <option value="all">
-                              Messages + tools + titles
-                            </option>
-                            <option value="titles">Session titles only</option>
-                          </select>
-                        </label>
-                        <label className="advanced-field">
-                          <span>Match</span>
-                          <select
-                            aria-label="Search matching"
-                            value={mode}
-                            onChange={(e) => setMode(e.target.value)}
-                          >
-                            <option value="words">Whole word / phrase</option>
-                            <option value="contains">Contains substring</option>
-                          </select>
-                        </label>
-                        <label className="search tool-search">
-                          <Terminal size={14} />
-                          <input
-                            aria-label="Filter tool name"
-                            placeholder="Tool name contains…"
-                            value={tool}
-                            onChange={(e) => setTool(e.target.value)}
-                          />
-                        </label>
-                        <label className="checkbox-label">
-                          <input
-                            type="checkbox"
-                            checked={internal}
-                            onChange={(e) => setInternal(e.target.checked)}
-                          />
-                          Include internal reviews
-                        </label>
-                      </div>
-                    </details>
-                    <button
-                      className="clear-all"
-                      disabled={
-                        !hasFilters && sort === "recent"
-                      }
-                      onClick={clearFilters}
-                    >
-                      Clear all
-                    </button>
-                  </div>
-                </section>
+                <InvestigationFilters
+                  value={filters}
+                  onChange={changeFilters}
+                  connections={connections.data ?? []}
+                  query={query}
+                  clearSearch={() => { setFilters(f => ({ ...f, search: "" })); setQuery(""); }}
+                  range={range}
+                  onRangeChange={r => { resetChartZoom(); setRange(r); }}
+                  zoomRange={chartRange}
+                  resetZoom={resetChartZoom}
+                  clearAll={clearFilters}
+                  canClear={hasFilters || sort !== "recent"}
+                />
               </div>}
                 {page === "Overview" && (
                   <>
@@ -643,12 +536,12 @@ export default function App() {
                           ? "Loading sessions…"
                           : hasFilters
                             ? "No matching sessions"
-                            : "Start with a connection"
+                            : "No sessions yet"
                       }
                       text={
                         hasFilters
                           ? "Try another range, search scope, or action filter."
-                          : "Connect Codex Desktop or Codex CLI to start observing conversations."
+                          : "Sessions will appear here when your connections sync conversation activity."
                       }
                       action={
                         hasFilters ? (

@@ -6,17 +6,19 @@ test("filters and chart window survive navigation; Overview sessions open Explor
   try {
     await request.post(`/api/connections/${connection.id}/sync`);
     await page.goto("/");
+    await page.getByRole("button", { name: "Filters", exact: true }).click();
     await page.getByLabel("Filter connection").selectOption(connection.id);
     await page.getByLabel("Search conversations", { exact: true }).fill("Investigate ingestion delays");
     await expect(page.locator("tbody tr")).toHaveCount(1);
     await page.getByLabel("Bucket size").selectOption("60");
     await page.getByRole("button", { name: "Zoom in", exact: true }).click();
-    await expect(page.locator(".range-picker summary")).not.toContainText("All time");
+    await expect(page.getByRole("button", { name: /^Remove Chart zoom:/ })).toBeVisible();
     const date = await page.locator(".range-picker summary").innerText();
     const window = await page.locator(".time-chart-caption").innerText();
     await page.getByRole("button", { name: "Explorer", exact: true }).click();
     await expect(page.getByLabel("Search conversations", { exact: true })).toHaveValue("Investigate ingestion delays");
     await expect(page.locator(".range-picker summary")).toHaveText(date);
+    await expect(page.getByRole("button", { name: /^Remove Chart zoom:/ })).toBeVisible();
     await page.getByRole("button", { name: "Overview", exact: true }).click();
     await expect(page.locator(".range-picker summary")).toHaveText(date);
     await expect(page.locator(".time-chart-caption")).toHaveText(window, { useInnerText: true });
@@ -30,7 +32,7 @@ test("filters and chart window survive navigation; Overview sessions open Explor
     await expect(page.getByLabel("Full session time range")).toHaveCount(0);
     await expect(page.locator(".detail-note")).toHaveCount(0);
     await page.getByRole("button", { name: "Overview", exact: true }).click();
-    await page.getByRole("button", { name: "Clear all", exact: true }).click();
+    await page.getByRole("button", { name: "Clear filters", exact: true }).click();
     await expect(page.locator(".range-picker summary")).toContainText("All time");
     await page.getByRole("button", { name: "Show sessions chart" }).click();
     const chart = page.getByTestId("sessions-chart");
@@ -75,5 +77,31 @@ test("Explorer routes restore sessions, action views, and browser history", asyn
     await page.getByRole("button", { name: "Overview", exact: true }).click();
     await page.goBack();
     await expect(page.getByLabel("Filter event type")).toHaveValue("tool_call");
+  } finally { await request.delete(`/api/connections/${connection.id}`); }
+});
+
+
+test("Explorer session list fits its panel without horizontal scrolling", async ({ page, request }) => {
+  const connection = await (await request.post("/api/connections", { data: { name: "Explorer overflow check", provider: "codex", path: path.resolve("../data/e2e-source") } })).json();
+  try {
+    await request.post(`/api/connections/${connection.id}/sync`);
+    await page.route("**/api/sessions?**", async route => {
+      const response = await route.fetch();
+      const data = await response.json();
+      data.items = data.items.map((session: object) => ({ ...session, title: "LongSessionTitle".repeat(30), connection_name: "LongConnectionName".repeat(15), messages: 1234567, actions: 1234567 }));
+      await route.fulfill({ response, json: data });
+    });
+    await page.goto("/#explorer");
+    await expect(page.locator(".session-link").first()).toBeVisible();
+    for (const width of [1920, 1440, 1280, 900, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      const scroll = page.locator(".session-panel .table-scroll");
+      expect(await scroll.evaluate(el => el.scrollWidth <= el.clientWidth)).toBeTruthy();
+      const panel = (await scroll.boundingBox())!;
+      const action = page.locator(".session-panel .action-count").first();
+      await expect(action).toBeVisible();
+      const bounds = (await action.boundingBox())!;
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(panel.x + panel.width + 1);
+    }
   } finally { await request.delete(`/api/connections/${connection.id}`); }
 });
