@@ -1,5 +1,7 @@
 # Relay Lab
 
+[← Relay](../README.md)
+
 Test synthetic tool requests through Relay's decision pipeline. Lab never executes the described commands and keeps each run separate from your monitoring data.
 
 ## Start
@@ -23,6 +25,20 @@ On Linux, `bash scripts/start-lab.sh --port 8018` combines dependency setup and 
 4. Use **Export JSON** to save the report.
 
 Simulated responses need no API key. To explore rules, switch to **Scenarios** and choose a small selection.
+
+## Screenshots
+
+### Choose what to test
+
+Select synthetic scenarios to exercise safety rules and the decision pipeline.
+
+![Relay Lab scenario selection with synthetic test cases](../docs/images/lab-scenarios.png)
+
+### Inspect a result
+
+A completed simulated request shows its assessment, delivery receipt, and checks. Open a result to inspect the recorded evidence, or export the report as JSON.
+
+![Relay Lab completed simulated request with results and delivery checks](../docs/images/lab-results.png)
 
 ## Choose a mode
 
