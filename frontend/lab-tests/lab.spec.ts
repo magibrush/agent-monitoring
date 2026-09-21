@@ -7,7 +7,7 @@ test("scenario selection, presets and custom JSON are usable", async ({ page }, 
   await expect(page.locator(".scenario")).toHaveCount(20);
   await page.getByRole("button", { name: "Select all" }).click();
   await expect(page.locator("#run-summary")).toHaveText("20 scenarios · once each");
-  await page.screenshot({ path: resolve(testInfo.config.rootDir, "../../data/lab-desktop.png"), fullPage: true });
+  await page.screenshot({ path: resolve(testInfo.config.rootDir, "../../data/lab-desktop.png"), fullPage: false });
   await page.getByRole("tab", { name: "Load test" }).click();
   await page.getByRole("button", { name: "Slow judge" }).click();
   await expect(page.locator("#count")).toHaveValue("100");
