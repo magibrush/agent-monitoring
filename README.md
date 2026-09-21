@@ -8,7 +8,7 @@ One local dashboard for Codex Desktop, Codex CLI, and Claude Code. Browse agent 
 
 ## Run it yourself
 
-You’ll need **Windows (PowerShell) or Linux (Bash)**, [uv](https://docs.astral.sh/uv/), and—for the demo or full application—[Node.js 22.12+ with npm 10+](https://nodejs.org/). Clone or download this repository. The first run needs internet; Python 3.11 is installed automatically through uv if needed.
+You’ll need **Windows (PowerShell) or Linux (Bash)**, [uv](https://docs.astral.sh/uv/) and [Node.js 22.12+ with npm 10+](https://nodejs.org/). Clone or download this repository. The first run needs internet; Python 3.11 is installed automatically through uv if needed.
 
 ### Just the demo
 
