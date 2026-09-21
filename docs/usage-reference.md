@@ -55,7 +55,7 @@ See [human review](human-review.md) for approvals and notifications, [policies](
 
 ### Debug and performance
 
-**Safety → Settings → Debug** can force Review, Allow, or Deny on new assessments without Anthropic calls. It overrides custom policy routing and the judge; built-in prohibitions, incomplete-action checks, deadlines, and human approval checks remain enforced. Shadow results stay advisory. Turn Debug off to restore normal evaluation. Existing assessments retain their configuration; debug results are excluded from production metrics.
+**Safety → Settings → Debug** can force Review, Allow, or Deny on new assessments without model API calls. It overrides custom policy routing and the judge; built-in prohibitions, incomplete-action checks, deadlines, and human approval checks remain enforced. Shadow results stay advisory. Turn Debug off to restore normal evaluation. Existing assessments retain their configuration; debug results are excluded from production metrics.
 
 **Settings → Performance** shows the last 24 hours of automatic pause p95, failures, expiries, and missing receipts. **Action → Technical details** separates intake, queue, model attempts, human response, publication, and delivery. Missing historical measurements show `—`. The API also exposes p50/p95/p99 and aggregate blocked-agent time, bounded to the latest 10,000 blocking requests with truncation disclosed.
 

@@ -41,7 +41,7 @@ Everything is synthetic. The demo executes no scenario commands, reads no person
 
 ## Use your own agents
 
-[Setup](docs/setup.md) takes you from transcript monitoring to optional hooks, policies, and live safety review. Browsing transcripts needs no API key. Live review uses paid Anthropic calls and sends selected action and conversation context to Anthropic.
+[Setup](docs/setup.md) takes you from transcript monitoring to optional hooks, policies, and live safety review. Browsing transcripts needs no API key. Live review uses paid API calls and sends selected action and conversation context to the configured provider. Anthropic is the default; [OpenAI support](docs/setup.md#optional-openai-credentials-untested) is available but untested with live calls.
 
 Relay is a local prototype with Windows and Linux launchers. It stores conversations in plaintext. Hooks cover only supported tools, model judgments can be wrong, and an approval does not prove execution succeeded. Keep it on your own machine.
 

@@ -11,7 +11,7 @@ flowchart LR
     U[React dashboard] <--> A[FastAPI]
     A <--> D
     D <--> W[Safety workers]
-    W --> J[Optional Anthropic judge]
+    W --> J[Optional model judge]
     U --> R[Human review]
     R --> A
     D --> G[Decision and gate receipt]
@@ -26,7 +26,7 @@ flowchart LR
 | Storage/querying | `backend/db.py`, `analytics.py`, `token_usage.py` | Persist events and provider records; filter and aggregate |
 | API | `backend/main.py` | Serve the UI/API and run collectors |
 | Gate | `backend/hooks.py`, `blocking.py`, `scripts/gate_hook.py` | Capture requests, deliver bound decisions, and record receipts |
-| Evaluation | `backend/policy_actions.py`, `policies.py`, `safety.py`, `safety_worker.py`, `judge.py` | Match rules, manage durable jobs, and evaluate within deadlines |
+| Evaluation | `backend/policy_actions.py`, `policies.py`, `safety.py`, `safety_worker.py`, `judge.py`, `judge_provider.py` | Match rules, manage durable jobs, and evaluate within deadlines |
 | Incidents | `backend/incidents.py`, `incident_analysis.py` | Group concerns and analyze cited evidence |
 | UI | `frontend/src/` | Browse activity, edit rules, and review requests |
 | Lab | `lab/server.py`, `runner.py`, `worker.py` | Exercise the pipeline with isolated synthetic runs |

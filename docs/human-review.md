@@ -18,4 +18,4 @@ Review updates bind to the evaluation ID, action hash, review state, deadline, a
 
 This is a single-user local app. A process with the same OS permissions can access its API, database, and queue; it is not an authenticated approval service or security boundary.
 
-Tests cover pause → review → approval/denial → receipt, expiry, action binding, and concurrent decisions. `scripts/check_judge_calibration.py` is an opt-in paid Anthropic check using built-in synthetic cases; it executes no proposed commands. See [testing](testing.md).
+Tests cover pause → review → approval/denial → receipt, expiry, action binding, and concurrent decisions. `scripts/check_judge_calibration.py` is an opt-in paid check with the configured judge provider using built-in synthetic cases; it executes no proposed commands. See [testing](testing.md).

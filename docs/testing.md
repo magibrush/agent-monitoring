@@ -77,4 +77,8 @@ The [release-preparation verification record](release-preparation-verification.m
 
 ## Optional judge calibration
 
-`uv run --locked python scripts/evaluate_safety.py` runs the offline synthetic policy baseline. Add `--live` for paid Anthropic evaluation of 12 built-in cases. `scripts/check_judge_calibration.py` provides an additional opt-in live check. These send synthetic evidence, execute no proposed commands, and do not establish general model accuracy.
+`uv run --locked python scripts/evaluate_safety.py` runs the offline synthetic policy baseline. Add `--live` for paid evaluation with the configured judge provider of 12 built-in cases. `scripts/check_judge_calibration.py` provides an additional opt-in live check. These send synthetic evidence, execute no proposed commands, and do not establish general model accuracy.
+
+## OpenAI support status
+
+OpenAI judge support is available but has not been tested with live API calls; Anthropic remains recommended. `backend/tests/test_openai_judge.py` checks mocked request/response handling, credential selection, redaction, incident analysis, error sanitization and fail-closed validation. Passing these offline tests does not establish live model compatibility or verdict quality.

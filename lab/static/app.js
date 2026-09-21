@@ -61,7 +61,7 @@ document.querySelectorAll('[data-kit]').forEach(b=>b.onclick=()=>{
 });
 function modeHelp(){
   const live=$('mode').value==='live'&&tab!=='load';
-  $('mode-help').textContent=live?'Assesses the request with Haiku. Sends the test content to Anthropic.':'Checks rule handling and delivery, using preset judge answers. No API calls.';
+  $('mode-help').textContent=live?'Assesses the request with the configured judge provider. OpenAI is untested; Anthropic is recommended.':'Checks rule handling and delivery, using preset judge answers. No API calls.';
   $('suspicious-label').textContent=live?'Expected to be flagged':'Flag as suspicious';
   $('expectations-title').textContent=live?'Expected result':'Simulated judge response';
   $('expectations-help').textContent=live?'Used to compare the result. These values are not sent to the judge.':'The simulated judge returns these values. Rules can take precedence.';

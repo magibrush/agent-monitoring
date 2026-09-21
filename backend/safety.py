@@ -11,6 +11,7 @@ from uuid import uuid4, UUID
 from sqlalchemy import select, update, func, or_, case
 from backend.db import Event, SafetyEvaluation, SafetyWorker, SafetyAttempt, now, ROOT
 from backend.safety_policy import assess, POLICY_VERSION, MODEL
+from backend.judge_provider import PROVIDER
 
 MAX_PENDING = 1000
 BLOCKING_RESERVE = 100
@@ -27,7 +28,7 @@ def later(seconds):
 
 
 def key_path():
-    return Path(os.getenv("RELAY_ANTHROPIC_KEY_FILE", str(ROOT / ".secrets/anthropic.key")))
+    return Path(os.getenv(f"RELAY_{PROVIDER.upper()}_KEY_FILE", str(ROOT / f".secrets/{PROVIDER}.key")))
 
 
 def read_key():
@@ -36,14 +37,17 @@ def read_key():
         return None
     # Read afresh so filling the file does not require a worker restart.
     try:
-        value = os.getenv("ANTHROPIC_API_KEY") or key_path().read_text(encoding="utf-8-sig").strip()
-        return value.strip() if value and value.strip().startswith("sk-ant-") else None
+        value = os.getenv(f"{PROVIDER.upper()}_API_KEY") or key_path().read_text(encoding="utf-8-sig").strip()
+        value = value.strip() if value else ""
+        valid = value.startswith("sk-ant-") if PROVIDER == "anthropic" else value.startswith("sk-") and not value.startswith("sk-ant-")
+        return value if valid else None
     except OSError:
         return None
 
 
 def redact(text):
     text = re.sub(r"sk-ant-[A-Za-z0-9_-]+", "[REDACTED_ANTHROPIC_KEY]", text)
+    text = re.sub(r"sk-[A-Za-z0-9_-]+", "[REDACTED_OPENAI_KEY]", text)
     text = re.sub(r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----", "[REDACTED_PRIVATE_KEY]", text, flags=re.S)
     return re.sub(r'(?i)(\b(?:api[_-]?key|password|secret|authorization|token)\b["\s:=]+)[^\s,"}]+', r'\1[REDACTED]', text)
 
@@ -295,7 +299,7 @@ def status(db):
     counts = dict(db.execute(select(SafetyEvaluation.status, func.count()).group_by(SafetyEvaluation.status)).all())
     workers = list(db.scalars(select(SafetyWorker).where(SafetyWorker.heartbeat_at >= later(-30))))
     oldest = db.scalar(select(func.min(SafetyEvaluation.created_at)).where(SafetyEvaluation.status == "queued"))
-    return {"mode": "per_connection", "model": MODEL, "policy_version": POLICY_VERSION, "key_configured": bool(read_key()),
+    return {"mode": "per_connection", "provider": PROVIDER, "model": MODEL, "policy_version": POLICY_VERSION, "key_configured": bool(read_key()),
         "key_file": str(key_path()), "counts": counts, "oldest_pending_at": oldest,
         "workers": [{"id": w.id, "status": w.status, "heartbeat_at": w.heartbeat_at} for w in workers],
         "max_pending": MAX_PENDING, "performance": summary(db), "debug": settings(db),

@@ -10,15 +10,15 @@ export function SafetyStatus() {
   }>("/safety"), refetchInterval: 2000 });
   const data = status.data;
   return <section className="panel safety-panel" aria-label="Safety evaluation status">
-    <div className="safety-heading"><ShieldCheck size={20} /><h2>Judge & worker health</h2><span className="badge">Haiku + rules</span></div>
+    <div className="safety-heading"><ShieldCheck size={20} /><h2>Judge & worker health</h2><span className="badge">Judge + rules</span></div>
     {status.error && <p className="error" role="alert">{status.error.message}</p>}
     {data && <>
-      <div className="safety-counts"><strong>{!data.key_configured ? "Waiting for Anthropic key" : !data.workers.length ? "Worker offline" : "Worker running"}</strong>
+      <div className="safety-counts"><strong>{!data.key_configured ? "Waiting for judge API key" : !data.workers.length ? "Worker offline" : "Worker running"}</strong>
         <span>{data.counts.queued ?? 0} queued</span><span>{data.counts.running ?? 0} evaluating</span><strong>{data.counts.awaiting_review ?? 0} awaiting approval</strong><span>{data.counts.completed ?? 0} completed</span><span>{(data.counts.failed ?? 0) + (data.counts.skipped ?? 0)} failed / expired</span></div>
       {data.oldest_pending_at && <p className="safety-muted">Oldest queued: {new Date(data.oldest_pending_at).toLocaleString()}</p>}
       <p className="safety-muted">Workspace-wide job counts, independent of the filters above.</p>
       <details><summary>Judge settings and data sharing</summary><p>Model: <code>{data.model}</code>. Put your API key alone in this local file:</p><code className="safety-path">{data.key_file}</code>
-        <p>The worker reads the file automatically. Action arguments, bounded recent transcript context and up to three user requests are sent to Anthropic after limited secret redaction. Redaction is not comprehensive. Existing transcript history is not backfilled for evaluation.</p>
+        <p>The worker reads the file automatically. Action arguments, bounded recent transcript context and up to three user requests are sent to the configured judge provider after limited secret redaction. Redaction is not comprehensive. Existing transcript history is not backfilled for evaluation.</p>
         <p>Start Relay with <code>scripts/start.ps1</code>, or run <code>scripts/start-worker.ps1</code> beside an existing server. Inspect individual verdicts in Explorer.</p>
       </details>
     </>}
@@ -101,7 +101,7 @@ function HumanReviewControls({ evaluation: e }: { evaluation: SafetyEvaluation }
 }
 
 export function HumanReviewQueue() {
-  return <section className="panel human-review-queue"><h2>Needs your decision</h2><p className="safety-muted">Live requests across all connections, independent of page filters. Pending means automated evaluation; awaiting approval means Haiku requested your decision. Requests expire within 60 seconds of the tool call.</p><SafetyInspection params="" initialState="awaiting_review" reviewQueue /></section>;
+  return <section className="panel human-review-queue"><h2>Needs your decision</h2><p className="safety-muted">Live requests across all connections, independent of page filters. Pending means automated evaluation; awaiting approval means the judge requested your decision. Requests expire within 60 seconds of the tool call.</p><SafetyInspection params="" initialState="awaiting_review" reviewQueue /></section>;
 }
 
 export function SafetyInspection({ params, initialState = "", outcome: selectedOutcome, onOutcomeChange, reviewQueue = false }: { params: string; initialState?: string; outcome?: string; onOutcomeChange?: (value: string) => void; reviewQueue?: boolean }) {

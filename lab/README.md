@@ -34,7 +34,7 @@ Simulated responses need no API key. To explore rules, switch to **Scenarios** a
 
 **Simulated responses** use the real collection, worker, retry, and receipt machinery with a known evaluator result. They test the pipeline, not model detection accuracy.
 
-**Live Haiku** sends synthetic action and conversation data to Anthropic using [configured credentials](../docs/setup.md#optional-anthropic-credentials), incurring API charges. Expected results are comparison targets and are not sent to the judge. Use made-up data. Live runs allow at most 25 actions and four concurrent clients; model disagreements are separate from pipeline failures.
+**Live judge** sends synthetic action and conversation data to the configured provider using [configured credentials](../docs/setup.md#optional-anthropic-credentials), incurring API charges. Anthropic is the default; [OpenAI support](../docs/setup.md#optional-openai-credentials-untested) has not been tested with live calls. Expected results are comparison targets and are not sent to the judge. Use made-up data. Live runs allow at most 25 actions and four concurrent clients; model disagreements are separate from pipeline failures.
 
 **Include incident analysis** exercises the independent analysis lane with real debounce/evidence checks. It limits runs to 25 actions and allows up to 185 seconds to drain. Without it, incident creation is checked but analysis remains queued and is not reported as tested.
 

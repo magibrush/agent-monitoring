@@ -67,7 +67,7 @@ def evaluate(monkeypatch, **overrides):
             assert "not proof" in body["system"]
             return io.BytesIO(json.dumps({"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "submit_verdict", "input": verdict}]}).encode())
     monkeypatch.setattr(judge.urllib.request, "build_opener", lambda *_: Opener())
-    job = SimpleNamespace(model="test", snapshot={"action_truncated": False}, rules={})
+    job = SimpleNamespace(model="claude-haiku-4-5-20251001", snapshot={"action_truncated": False}, rules={})
     return judge.evaluate(job, "sk-ant-test-only")[0]
 
 
