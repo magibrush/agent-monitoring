@@ -29,6 +29,8 @@ Lab browser tests start a separate Lab server on port 8018 and create isolated r
 
 ## CI
 
+Full CI runs when a pull request is opened, reopened, or updated. Pushes alone do not trigger CI, including merge pushes. Manual runs remain available through workflow dispatch. A newer run cancels an older run for the same PR; manual runs are grouped separately by branch.
+
 The Windows GitHub Actions workflow installs Python 3.11, uv, Node 22, locked dependencies, and Playwright Chromium. It runs both Python suites, the production frontend build, and both browser suites. Browser failure artifacts are uploaded for inspection. CI needs no Anthropic or OpenAI secrets.
 
 A committed workflow is not evidence of a passing remote run. Check its result on the exact release commit before publishing a badge or release claim.
