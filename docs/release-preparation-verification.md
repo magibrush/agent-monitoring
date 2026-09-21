@@ -1,5 +1,28 @@
 # Release preparation: local verification
 
+## September 21: main-dashboard demo iteration
+
+Checked locally on `main` after pulling `4a7140d`, with the demo implementation still uncommitted. These results are not a tagged-release or remote CI claim.
+
+| Check | Result |
+| --- | --- |
+| Backend and Lab Python suites, Python 3.13.1 | 299 passed |
+| Demo isolation tests in the launcher's Python 3.11.16 environment | 18 passed |
+| TypeScript and production frontend build | Passed; existing chunk-size warning remains |
+| Existing main browser workflows | 40 passed |
+| Existing Lab browser workflows | 5 passed |
+| Actual demo browser walkthrough, dismissal, and reset | 1 passed |
+| Windows PowerShell demo launcher | Installed locked dependencies into a separate Python environment, built UI, started on port 18002, and returned healthy demo status |
+| Synthetic demo screenshots | Visually reviewed and added to README/tour |
+
+The machine's default Node 20 and npm 6 are below the documented requirements; prerequisite checks reject them before installation. Startup verification used installed Node 24.19.0 and npm 10.5.2 through an explicit PATH. The Visual Studio npm wrapper itself uses Node 20.13.1 and emitted engine warnings during dependency installation; the build used Node 24.19.0. This mixed developer environment is **not** clean-machine verification. Browser checks used the installed Chromium executable override. Python temporary-directory access and build/browser subprocesses required execution outside the tool sandbox.
+
+The demo launcher now installs Python 3.11 into `data/demo/venv` to avoid replacing an existing development environment. An earlier launcher attempt tried to replace the existing Python environment and hit a locked executable; its dependencies were restored with the locked Python 3.13 setup before continuing verification.
+
+Remaining release gates: clean Windows installation with standard runtimes, remote CI on the final commit, history/privacy audit, license, recorded walkthrough, and versioned release.
+
+## Earlier documentation preparation
+
 Verified during the September 2026 documentation preparation on `codex/cv-release-preparation`. This records a working-tree check, not a tagged release or a remote CI result. Existing application changes were present, and additional application work was occurring during verification; rerun against the final release commit.
 
 ## Results

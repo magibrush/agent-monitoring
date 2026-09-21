@@ -52,6 +52,12 @@ Blocking requests have a fixed 60-second deadline. Automated evaluation reserves
 
 Relay Lab creates a migrated database, transcript fixtures, and local queues for each run. It uses the production collection and decision machinery, with either a scripted evaluator or live requests to the configured judge provider. The described tools are never executed. Reports distinguish expected assessments, receipt delivery, faults, and model disagreements.
 
+## Isolated reviewer demo
+
+`python -m backend.demo` sets a process-wide demo mode before database initialization. That mode selects `data/demo/monitor.db` independently of `DATABASE_URL`; seeding refuses any other database. It migrates the same schema and populates fictional sessions, completed decisions, and cited incident analyses. It starts the normal UI/API without collectors or safety workers. Source discovery returns no personal paths, credential reads return no key, and API middleware rejects live integration/configuration mutations. Only demo reset and incident status/notes edits are permitted. Reset replaces sample records in one transaction and refreshes their timestamps.
+
+The sample decisions and execution records illustrate the UI; they do not exercise the live gate or establish model accuracy. The Lab remains the separate path for synthetic pipeline experiments. The Windows demo launcher uses its own Python environment under `data/demo/venv`, so it does not replace an existing development environment.
+
 ## Why these choices?
 
 - **React and TypeScript:** interactive filtering, linked views, and review state without a server-rendering requirement. TanStack Query manages server state; Recharts supplies chart primitives.

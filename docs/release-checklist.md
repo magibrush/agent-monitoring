@@ -11,6 +11,7 @@ See [local verification results](release-preparation-verification.md) for the ch
 - [x] Preserve detailed existing usage notes outside the README.
 - [x] Add a Windows CI workflow for Python, frontend build, and browser checks.
 - [x] Document a key-free synthetic Lab walkthrough.
+- [x] Add an isolated main-dashboard demo with scripted stories, guided links, reset, a Windows launcher, and automated isolation/browser checks.
 
 ## Before tagging a release
 
@@ -39,7 +40,7 @@ No license, public publishing action, or version tag is selected by this checkli
 
 ## Near-term roadmap
 
-1. Provide a dedicated synthetic main-dashboard demo, independent of browser-test fixtures and real agent history.
+1. Verify the dedicated main-dashboard demo launcher on a clean Windows environment and record its guided walkthrough.
 2. Calibrate live judge cases and report false positives, false negatives, and model disagreements separately from pipeline failures.
 3. Measure and reduce database contention at realistic local arrival rates; retain failed-run evidence.
 4. Validate additional operating systems before documenting them as supported.

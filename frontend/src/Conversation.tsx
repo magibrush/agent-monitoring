@@ -157,7 +157,7 @@ export function Conversation({
           </button>
         )}
       </div>}
-      <div className="conversation-body">
+      <div className="conversation-body" data-tour="conversation">
         {events.error && (
           <div className="error" role="alert">
             {events.error.message}

@@ -1,103 +1,64 @@
 # Relay
 
-Relay lets you monitor **Codex Desktop, Codex CLI, and Claude Code** in one local dashboard. Browse conversations and tool calls, review proposed actions, and investigate safety concerns.
+**Understand what your coding agents did—and inspect decisions about what they should do next.** Relay brings Codex Desktop, Codex CLI, and Claude Code into one local dashboard, with searchable conversations, policy-based tool review, and incident investigations backed by conversation evidence.
 
-## 1. Prerequisites
+![Relay sample dashboard with four fictional agent sessions](docs/images/demo-overview.png)
 
-These instructions use **Windows and PowerShell**. Install:
+## Choose your path
 
-- **Python 3.11+** and [uv](https://docs.astral.sh/uv/).
-- **Node.js 22.12+** and **npm 10+**.
-- At least one supported coding agent, with a local conversation to import.
-- An **Anthropic API key** with API credit and access to Claude Haiku for live safety evaluation. OpenAI is also supported, but has not been tested with live API calls. Anthropic is recommended.
+| I want to… | Start here |
+| --- | --- |
+| See the product without installing it | [Screenshots and guided tour](docs/demo.md#the-three-minute-tour) |
+| Explore a populated dashboard, without an agent or API key | [Run the sample demo](#run-the-sample-demo) |
+| Monitor my own coding agent | [Local setup and agent connections](docs/setup.md) |
+| Understand the engineering | [Architecture and trade-offs](docs/architecture.md) · [Tests](docs/testing.md) · [Relay Lab](lab/README.md) |
 
-You can use monitoring without a judge API key; skip steps 3 and 6 if you only want to browse agent activity.
+## Run the sample demo
 
-## 2. Install Relay
-
-Clone or download this repository. Open PowerShell in the project folder and run:
-
-```powershell
-uv sync --locked
-Set-Location frontend
-npm ci
-Set-Location ..
-```
-
-## 3. Add your API key
-
-**Without an API key:** you can still browse conversations, search tool calls, and view activity and token usage. Skip this step, continue to [Start Relay](#4-start-relay), and leave live safety review disabled. To try safety scenarios without paid model calls, use [Relay Lab with simulated responses](#7-try-relay-lab-optional). You can add a key later to enable live model evaluation.
-
-For live safety evaluation, create a folder named `.secrets` in the project folder. Inside it, create **`anthropic.key`** and paste your Anthropic API key as its only content. Save it with that exact name, not `anthropic.key.txt`.
-
-```text
-agent-monitoring/
-  .secrets/
-    anthropic.key
-```
-
-This file is ignored by Git. Live evaluation uses paid Anthropic API calls and sends action details and selected conversation context to Anthropic. Your coding-agent subscription does not replace this API key.
-
-For OpenAI, set `RELAY_JUDGE_PROVIDER=openai` before starting Relay and its worker, and save the key in `.secrets/openai.key` or set `OPENAI_API_KEY`. This selects OpenAI for both judgments and incident analysis. **OpenAI support has not been tested with live API calls; Anthropic is recommended.** See [OpenAI setup](docs/setup.md#optional-openai-credentials-untested).
-
-Already using `ANTHROPIC_API_KEY`? Relay also accepts that environment variable; it takes precedence over the file. See [credential options](docs/setup.md#optional-anthropic-credentials).
-
-## 4. Start Relay
-
-From the project folder:
+On **Windows with PowerShell**, install [uv](https://docs.astral.sh/uv/) and [Node.js](https://nodejs.org/) **22.12+ with npm 10+**. Clone or download this repository, open PowerShell in its folder, and run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/start.ps1
+powershell -ExecutionPolicy Bypass -File scripts/demo.ps1
 ```
 
-This builds the dashboard, prepares the database, and starts both Relay and its safety worker. You do not need to start them separately.
+The launcher installs locked dependencies (including Python 3.11 through uv if needed), builds the dashboard, and opens **http://127.0.0.1:8001**. The first run needs internet access. A spotlight tour guides you through the actual app: click a session, inspect its conversation, investigate a denied upload, trace a human review, and visit Connections. Finish or exit the tour to explore freely; restart and reset controls remain available.
 
-Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)**. Keep this terminal open while using Relay. Press **Ctrl+C** to stop; use the same command to start it again.
+**No agent, account, or API key is required.** All stories, assessments, token counts, and execution records are synthetic. Scenario commands are never executed. Demo mode does not discover personal transcripts, change agent hooks, or make model calls, even if credentials are configured. You can dismiss sample incidents; **Reset demo** restores the starting state. Ctrl+C stops the server. Restarting also resets the demo.
 
-## 5. Connect your coding agent
+Sample data stays in `data/demo/monitor.db`, separate from normal monitoring. See [demo options and troubleshooting](docs/demo.md#launch-options).
 
-1. Open **Connections → Add connection**.
-2. Select **Codex Desktop**, **Codex CLI**, or **Claude Code**.
-3. Confirm the detected transcript folder and click **Connect**.
-4. Open **Overview** to see imported activity, or **Explorer** to read a conversation.
+## What to explore
 
-New activity appears as your agent writes its transcripts. If no sessions appear, start a conversation in the selected agent and check the connection's source folder.
+- **Overview and Explorer:** compare activity across providers and read conversations alongside tool requests and results.
+- **Safety:** distinguish the assessment, the decision delivered to the agent, and recorded execution. Permission does not establish success.
+- **Incidents:** follow concerns back to user intent and action evidence; dismiss an incident while retaining its evidence.
+- **Policies and Lab:** inspect the rule workflow and test synthetic scenarios through an isolated pipeline. The main demo keeps configuration changes disabled; [Lab](lab/README.md) supports scripted experiments without executing commands.
 
-## 6. Enable live safety review
+## How it fits together
 
-With your API key saved and Relay running:
-
-1. Open **Safety → Settings → Protection by connection**.
-2. Click **Configure** for your connection, select **Enable blocking Haiku evaluation**, and click **Enable live hooks** (or **Save hook settings** if hooks are already installed).
-3. Restart your agent sessions and review/trust the Codex handler if prompted.
-4. Ask the agent to perform a harmless action, such as reading a project file. Check that Relay receives the action and shows its assessment in **Safety**.
-5. If an action needs your decision, use **Approve** or **Deny** under **Safety → Needs your decision**. Keep the Relay tab open while working.
-
-Covered actions can wait up to 60 seconds, including human review. If the key or worker is unavailable, requests can expire or be blocked. Relay is a local prototype with limited hook coverage, not a guarantee of agent safety. See [review behavior and limits](docs/human-review.md).
-
-## 7. Try Relay Lab (optional)
-
-The Lab tests synthetic scenarios without executing their commands. In a second PowerShell terminal, from the project folder:
-
-```powershell
-uv run --locked python -m lab.server
+```mermaid
+flowchart LR
+    T[Local transcripts] --> A[Collectors and FastAPI]
+    H[Optional pre-tool hooks] --> A
+    A <--> D[(SQLite)]
+    D <--> W[Safety workers]
+    W --> J[Optional model judge]
+    D <--> U[React dashboard]
+    U --> R[Human review]
+    R --> A
+    A --> G[Decision to covered agent tool]
 ```
 
-Open **[http://127.0.0.1:8010](http://127.0.0.1:8010)**. Choose **Custom request**, keep **Simulated responses**, and click **Test request**. Open the result to inspect its evidence. This mode needs no API key and uses separate test data. Press **Ctrl+C** in the Lab terminal to stop it.
+SQLite and a local API keep installation small. Durable evaluation jobs separate model latency from API requests. Transcript checkpoints support recovery, while hooks provide pre-execution decisions for covered tools. Read [the architecture](docs/architecture.md) for the boundaries and trade-offs.
 
-## More information
+## Use it with your own agent
 
-- [Setup help and troubleshooting](docs/setup.md)
-- [Architecture and components](docs/architecture.md)
-- [Policies](docs/policies.md), [detailed usage](docs/usage-reference.md), and [Lab guide](lab/README.md)
-- [Tests and CI](docs/testing.md)
+Follow [setup](docs/setup.md): install → import transcripts → optionally enable hooks and live safety review. Transcript browsing needs no API key. Live evaluation uses paid model API calls and sends selected action and conversation context to the configured judge provider. Anthropic is the default and recommended provider. Optional [OpenAI support](docs/setup.md#optional-openai-credentials-untested) is available for judgments and incident analysis, but has not been tested with live API calls. Hook setup backs up the affected configuration; **Disable live hooks** removes Relay's handlers. See [hook setup and removal](docs/setup.md#optional-live-hooks-and-blocking).
 
-Relay stores conversation data locally in plaintext. Keep it on your own machine and do not expose it to the public internet. See [data handling and limitations](docs/setup.md).
+Relay is a local prototype, currently documented for Windows. Conversation data is stored in plaintext. Hook coverage is limited, model judgments can be wrong, and SQLite contention can affect review deadlines. Keep the application on your own machine. The synthetic demo illustrates behavior; it is not a measurement of live detection accuracy.
 
-## Video demo
+## Development and release status
 
-*Video walkthrough coming soon.*
+[Testing commands and CI](docs/testing.md) cover Python, the production frontend build, and browser workflows. [Policies](docs/policies.md), [human review](docs/human-review.md), and the [usage reference](docs/usage-reference.md) explain the detailed behavior.
 
-<!-- Replace this placeholder with the video link or an embedded recording when available. -->
-
-Until then, see the [guided demo and screenshots](docs/demo.md).
+Release preparation is in progress. A recorded walkthrough, clean-machine installation verification, privacy/history audit, license selection, and tagged release remain on the [release checklist](docs/release-checklist.md).

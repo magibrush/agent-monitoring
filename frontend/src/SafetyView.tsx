@@ -14,6 +14,7 @@ import { ChartTooltip } from "./ChartTooltip";
 import { SeriesTooltipRow } from "./chartSeries";
 import type { SafetyNotifications } from "./useSafetyNotifications";
 import { FIT, TimeRange, rangeQuery, type Range } from "./TimeRange";
+import { DecisionStatus } from "./DecisionStatus";
 
 export type Action = { event_id: number; title: string; tool_name: string; occurred_at: string; safety_state: string; execution_outcome: string | null; evaluation: SafetyEvaluation | null };
 type Actions = { total: number; items: Action[] };
@@ -85,7 +86,12 @@ export function ActionDetail({ item, close, showTimings = false }: { item: Actio
     {detail.error && <p className="error">{detail.error.message}</p>}
     {e ? <>
       {e.status === "awaiting_review" ? <ApprovalCard item={{ ...item, evaluation: e }} /> : <p className="detail-reason">{e.result?.reason || e.error || "Evaluation in progress."}</p>}
-      <dl className="decision-facts"><div><dt>{e.result?.source === "debug" ? "Debug" : e.result?.source === "policy" ? "Policy" : e.result?.source === "rules" ? "Rules" : "Judge"}</dt><dd>{e.result ? ({ allow: "Allow", review: "Review", deny: "Deny" }[e.result.recommendation] ?? e.result.recommendation) : "Not completed"}</dd></div><div><dt>Human decision</dt><dd>{e.human_decision === "approve" ? "Approved" : e.human_decision === "deny" ? "Denied" : "None"}</dd></div><div><dt>Hook returned</dt><dd>{e.gate ? ({ pass: "Released", deny: "Blocked", error: "Failed", expired: "Expired" }[e.gate.decision] ?? "Unknown") : "Not confirmed"}</dd></div><div><dt>Execution</dt><dd>{({ requested: "Not confirmed", succeeded: "Succeeded", failed: "Failed", completed: "Completed" }[item.execution_outcome || ""] ?? "Unknown")}</dd></div></dl>
+      <dl className="decision-facts decision-summary" data-tour="decisions">
+        <div><dt>{e.result?.source === "debug" ? "Debug" : e.result?.source === "policy" ? "Policy" : e.result?.source === "rules" ? "Rules" : "Judge"}</dt><dd><DecisionStatus value={e.result?.recommendation}>{e.result ? ({ allow: "Allow", review: "Review", deny: "Deny" }[e.result.recommendation] ?? e.result.recommendation) : "Not completed"}</DecisionStatus></dd></div>
+        <div><dt>Human decision</dt><dd><DecisionStatus value={e.human_decision}>{e.human_decision === "approve" ? "Approved" : e.human_decision === "deny" ? "Denied" : "None"}</DecisionStatus></dd></div>
+        <div><dt>Hook returned</dt><dd><DecisionStatus value={e.gate?.decision}>{e.gate ? ({ pass: "Released", deny: "Blocked", error: "Failed", expired: "Expired" }[e.gate.decision] ?? "Unknown") : "Not confirmed"}</DecisionStatus></dd></div>
+        <div><dt>Execution</dt><dd><DecisionStatus value={item.execution_outcome}>{({ requested: "Not confirmed", succeeded: "Succeeded", failed: "Failed", completed: "Completed" }[item.execution_outcome || ""] ?? "Unknown")}</DecisionStatus></dd></div>
+      </dl>
       {e.decision === "expired" && <p className="error">Expired. Submit a new tool request; this action cannot resume.</p>}
       {e.result?.recommendation === "review" && e.decision === "deny" && !e.human_decision && <p className="safety-muted">Review requested; blocked by the previous policy.</p>}
       {e.rules.policy && <p className="safety-muted">Policy v{e.rules.policy.version} · {e.rules.policy.reason}</p>}{e.rules.trial && <p className="safety-muted">Shadow trial v{e.rules.trial.version}: {e.rules.trial.decision === "none" ? "no match" : `would ${e.rules.trial.decision}`}</p>}
@@ -101,7 +107,7 @@ export function ActionDetail({ item, close, showTimings = false }: { item: Actio
     </> : <p>No assessment recorded for this action.</p>}
   </div></section>;
 }
-export function SafetyWorkspace({ connections, refresh, notify, notifications }: { notifications: SafetyNotifications; connections: Connection[]; refresh: () => void; notify: (message: string) => void }) {
+export function SafetyWorkspace({ connections, refresh, notify, notifications, demo = false }: { demo?: boolean; notifications: SafetyNotifications; connections: Connection[]; refresh: () => void; notify: (message: string) => void }) {
   const inspector = useRef<HTMLElement>(null);
   const [policies, setPolicies] = useState(false);
   const [policyContext, setPolicyContext] = useState<{ ruleId: string; incidentId: string } | null>(null);
@@ -163,9 +169,9 @@ export function SafetyWorkspace({ connections, refresh, notify, notifications }:
   const bars = metrics.data?.series.map(row => ({ time: row.time, ...row.safety })) ?? [];
   if (policies) return <SafetyPolicies connections={connections} attention={policyContext} close={() => { setPolicies(false); setPolicyContext(null); }} />;
   return <div className="safety-simple">
-    <div className="safety-topline" aria-label="Safety evaluation status"><span><ShieldCheck size={17} /><i className={`status-dot ${ready ? "" : "red"}`} />{status.isPending ? "Connecting…" : status.error ? "Status unavailable" : status.data?.debug?.enabled ? `Debug mode · Forced ${status.data.debug.result}` : !status.data?.key_configured ? "Waiting for judge API key" : !status.data.workers.length ? "Worker offline" : "Judge online"}</span><div className="safety-top-actions"><button className="secondary" onClick={() => { setPolicyContext(null); setPolicies(true); }}>Policies</button><button className="secondary" onClick={notifications.toggle} disabled={!notifications.supported}>{notifications.enabled ? <BellRing size={15} /> : <Bell size={15} />}{notifications.enabled ? "Alerts on" : "Enable notifications"}</button><button className="secondary" onClick={() => setSettings(true)}><Settings2 size={15} />Settings</button></div></div>
+    <div className="safety-topline" aria-label="Safety evaluation status"><span><ShieldCheck size={17} /><i className={`status-dot ${demo || ready ? "" : "red"}`} />{demo ? "Scripted demo · no API key needed" : status.isPending ? "Connecting…" : status.error ? "Status unavailable" : status.data?.debug?.enabled ? `Debug mode · Forced ${status.data.debug.result}` : !status.data?.key_configured ? "Waiting for judge API key" : !status.data.workers.length ? "Worker offline" : "Judge online"}</span><div className="safety-top-actions"><button className="secondary" disabled={demo} title={demo ? "Configuration is disabled in the sample demo" : undefined} onClick={() => { setPolicyContext(null); setPolicies(true); }}>Policies</button><button className="secondary" onClick={notifications.toggle} disabled={demo || !notifications.supported}>{notifications.enabled ? <BellRing size={15} /> : <Bell size={15} />}{notifications.enabled ? "Alerts on" : "Enable notifications"}</button><button className="secondary" disabled={demo} title={demo ? "Live integrations are disabled in the sample demo" : undefined} onClick={() => setSettings(true)}><Settings2 size={15} />Settings</button></div></div>
     {notifications.error && <p className="error" role="alert">{notifications.error}</p>}
-    <section className="live-decisions" aria-label="Awaiting human decisions"><div className="safety-section-title"><h2>Needs your decision {Boolean(approvals.data?.total) && <span className="count">{approvals.data!.total}</span>}</h2><small>Live · all connections</small></div>
+    <section className="live-decisions" aria-label="Awaiting human decisions"><div className="safety-section-title"><h2>Needs your decision {Boolean(approvals.data?.total) && <span className="count">{approvals.data!.total}</span>}</h2><small>{demo ? "Demo · saved decisions only" : "Live · all connections"}</small></div>
       {approvals.error ? <p className="error">{approvals.error.message}</p> : approvals.isPending ? <p className="safety-muted">Loading requests…</p> : approvals.data?.total === 0 ? <div className="decisions-clear"><CheckCircle2 size={19} />No actions waiting for approval</div> : <div className="review-grid">{approvals.data?.items.map(item => <ApprovalCard key={item.event_id} item={item} />)}</div>}
       {!!approvals.data && approvals.data.total > 20 && <div className="safety-pager"><button disabled={!reviewOffset} onClick={() => setReviewOffset(Math.max(0, reviewOffset - 20))}>Previous</button><button disabled={reviewOffset + 20 >= approvals.data.total} onClick={() => setReviewOffset(reviewOffset + 20)}>Next</button></div>}
     </section>
