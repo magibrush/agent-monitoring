@@ -30,7 +30,7 @@ A separate correlation cycle reads at most 100 eligible persisted assessments ev
 - Suspicious judge findings create an incident immediately, including allowed actions at low severity.
 - Judge reviews and deny recommendations create an incident immediately; reviews have high severity even if a legacy result says low.
 - A routine policy review does not create an additional task. Repeated deterministic denials and service failures retain the three-in-ten-minutes threshold.
-- Judge concerns group by connection, session and threat categories (or tool when no category is available). Deterministic patterns retain their existing rule/resource grouping.
+- Judge concerns now group by connection and conversation, across tools and threat categories. Deterministic patterns retain their existing rule/resource grouping.
 - Severity is the highest linked assessment severity. Existing records are backfilled from their saved evidence on upgrade.
 - New suspicious evidence after dismissal brings back the same incident. Earlier requests completing late attach without reopening it. Routine repeated patterns still need their threshold.
 - Debug assessments and retrospective retries are excluded. Restart-safe candidate records prevent duplicate processing. Existing historical assessments are not re-judged.
