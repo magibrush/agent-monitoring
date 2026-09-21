@@ -1,5 +1,7 @@
 # Relay Lab
 
+> Anthropic is the default and recommended judge provider. OpenAI is also available for judgments and incident analysis, but has not been tested with live API calls. See [OpenAI setup](../docs/setup.md#optional-openai-credentials-untested). Anthropic-specific details below describe the default configuration.
+
 A separate local app for sending synthetic agent activity through Relay. It needs
 the same Python environment as Relay; there is no additional frontend build.
 
@@ -38,13 +40,13 @@ retries, and persists results, but an injected evaluator returns a known respons
 This proves the pipeline handles deny, review, allow-with-suspicion, severity,
 receipts, and incidents correctly. It does **not** prove model detection accuracy.
 
-**Live Haiku** calls the configured Anthropic judge with synthetic conversation
+**Live judge** calls the configured judge provider with synthetic conversation
 and action data. Nothing asks an upstream LLM to generate the action, and neither
 the expected verdict nor test instructions enter the model snapshot. Live runs
 are limited to 25 actions and 4 concurrent clients. Model disagreement is shown
 separately from a pipeline failure. In particular, “allow but suspicious” examples
 are hypotheses for the live model, not guaranteed classifications. Use made-up
-data in custom scenarios; live mode sends it to Anthropic and incurs API charges.
+data in custom scenarios; live mode sends it to the configured judge provider and incurs API charges.
 The action's working directory is a fictional `Workspaces/storefront` path. It is
 never created or accessed; the real transcript location stays out of the model
 snapshot so that a lab directory name cannot give away the test framing.

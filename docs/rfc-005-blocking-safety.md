@@ -1,5 +1,7 @@
 # RFC 005: Blocking Haiku evaluation and safety visualization
 
+> Anthropic is the default and recommended judge provider. OpenAI is also available for judgments and incident analysis, but has not been tested with live API calls. See [OpenAI setup](setup.md#optional-openai-credentials-untested). Anthropic-specific details below describe the default configuration.
+
 Implemented 18 September 2026. Supersedes RFC 004's advisory-only gate design.
 
 Updated 19 September: [human review](human-review.md) adds a distinct awaiting
@@ -8,7 +10,7 @@ applies; review no longer becomes an immediate denial.
 
 ## Operation
 
-Enable **Connections → Set up live hooks → Enable blocking Haiku evaluation**.
+Enable **Connections → Set up live hooks → Enable blocking judge evaluation**.
 Restart agent sessions; review/trust Codex handlers in `/hooks` when required.
 Connections without this option retain shadow evaluation. Existing sessions may
 retain an old observer until restarted; a configured gate is not evidence that an

@@ -453,14 +453,14 @@ function AttentionDetail({
   const ready = analysis?.result && !analysis.stale ? analysis.result : null;
   const analysisMessage =
     analysis?.status === "needs_key"
-      ? "Add an Anthropic key in Safety settings for automatic analysis. The recorded evidence is available below."
+      ? "Add a judge API key in Safety settings for automatic analysis. The recorded evidence is available below."
       : analysis?.status === "failed" || analysis?.status === "unavailable"
         ? analysis.error ||
           "Analysis is unavailable. The recorded evidence is below."
         : analysis?.stale
           ? "New activity arrived. An updated analysis is queued."
           : analysis?.status === "running"
-            ? "Haiku is reviewing the recorded activity. You can inspect the evidence now."
+            ? "The judge is reviewing the recorded activity. You can inspect the evidence now."
             : analysis?.status === "pending"
               ? "Automatic analysis is queued. You can inspect the evidence now."
               : analysis?.error ||
@@ -635,7 +635,7 @@ function AttentionDetail({
                 <Sparkles size={15} />
                 What happened
               </h3>
-              <small>{analysis?.model === "scripted-demo" ? "Scripted demo analysis" : "Haiku analysis"}</small>
+              <small>{analysis?.model === "scripted-demo" ? "Scripted demo analysis" : "Judge analysis"}</small>
             </div>
             {ready ? (
               <>

@@ -426,8 +426,8 @@ export function HookSetup({ connection, close, done }: { connection: Connection;
     <div className="modal-heading"><div><h2 id="dialog-title">Live hook observations</h2><p>{connection.name}</p></div><button className="icon-button" aria-label="Close hook setup" disabled={busy} onClick={close}><X size={20} /></button></div>
     <div className="hook-setup-body"><p>Observe tool requests and results as they happen. New pre-tool observations are evaluated in shadow mode.</p>
     <p>Notifications are saved locally while Relay is offline and matched with transcript history. The dashboard refreshes every 2 seconds.</p>
-    <label className="safety-gate-choice"><input type="checkbox" checked={gate} disabled={busy} onChange={e => setGate(e.target.checked)} />Enable blocking Haiku evaluation</label>
-    <p>{gate ? "Covered tool calls pause for rules and Haiku evaluation, for up to 60 seconds. Only a valid allow verdict or your approval continues to native provider permissions. Review verdicts wait in Safety for Approve or Deny within the same 60-second deadline. Denials, unavailable workers and timeouts block the action." : "Shadow mode: Relay returns no permission decisions."}</p>
+    <label className="safety-gate-choice"><input type="checkbox" checked={gate} disabled={busy} onChange={e => setGate(e.target.checked)} />Enable blocking judge evaluation</label>
+    <p>{gate ? "Covered tool calls pause for rules and judge evaluation, for up to 60 seconds. Only a valid allow verdict or your approval continues to native provider permissions. Review verdicts wait in Safety for Approve or Deny within the same 60-second deadline. Denials, unavailable workers and timeouts block the action." : "Shadow mode: Relay returns no permission decisions."}</p>
     {gate && <p>Partial coverage: subprocesses and unhooked tools can bypass these checks. Pausing transcript collection does not disable the gate. Disable live hooks to remove it. Restart agent sessions after saving.</p>}
     {setup.data && <>
       <div className="connection-detail"><span>PROVIDER SETTINGS</span><code>{setup.data.path}</code></div>

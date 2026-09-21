@@ -1,5 +1,7 @@
 # Architecture and engineering tradeoffs
 
+> Anthropic is the default and recommended judge provider. OpenAI is also available for judgments and incident analysis, but has not been tested with live API calls. See [OpenAI setup](setup.md#optional-openai-credentials-untested). Anthropic-specific details below describe the default configuration.
+
 Relay separates recorded activity, decisions about proposed actions, and evidence of execution. A transcript tool call is an observation; an allow verdict is permission; a completion record is separate evidence. The UI preserves these distinctions rather than inferring success from a request.
 
 ## System overview
@@ -13,7 +15,7 @@ flowchart LR
     API <--> DB
     UI[React dashboard] <--> API
     DB <--> Worker[Safety workers]
-    Worker --> Judge[Anthropic judge]
+    Worker --> Judge[Anthropic or OpenAI judge]
     UI --> Review[Human review]
     Review --> API
     DB --> Gate[Gate response]
@@ -48,7 +50,7 @@ Blocking requests have a fixed 60-second deadline. Automated evaluation reserves
 
 ### Testing the pipeline
 
-Relay Lab creates a migrated database, transcript fixtures, and local queues for each run. It uses the production collection and decision machinery, with either a scripted evaluator or live Anthropic requests. The described tools are never executed. Reports distinguish expected assessments, receipt delivery, faults, and model disagreements.
+Relay Lab creates a migrated database, transcript fixtures, and local queues for each run. It uses the production collection and decision machinery, with either a scripted evaluator or live requests to the configured judge provider. The described tools are never executed. Reports distinguish expected assessments, receipt delivery, faults, and model disagreements.
 
 ## Isolated reviewer demo
 

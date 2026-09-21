@@ -53,7 +53,7 @@ SQLite and a local API keep installation small. Durable evaluation jobs separate
 
 ## Use it with your own agent
 
-Follow [setup](docs/setup.md): install → import transcripts → optionally enable hooks and live safety review. Transcript browsing needs no API key. Live evaluation uses paid Anthropic API calls and sends selected action and conversation context to Anthropic. Hook setup backs up the affected configuration; **Disable live hooks** removes Relay's handlers. See [hook setup and removal](docs/setup.md#optional-live-hooks-and-blocking).
+Follow [setup](docs/setup.md): install → import transcripts → optionally enable hooks and live safety review. Transcript browsing needs no API key. Live evaluation uses paid model API calls and sends selected action and conversation context to the configured judge provider. Anthropic is the default and recommended provider. Optional [OpenAI support](docs/setup.md#optional-openai-credentials-untested) is available for judgments and incident analysis, but has not been tested with live API calls. Hook setup backs up the affected configuration; **Disable live hooks** removes Relay's handlers. See [hook setup and removal](docs/setup.md#optional-live-hooks-and-blocking).
 
 Relay is a local prototype, currently documented for Windows. Conversation data is stored in plaintext. Hook coverage is limited, model judgments can be wrong, and SQLite contention can affect review deadlines. Keep the application on your own machine. The synthetic demo illustrates behavior; it is not a measurement of live detection accuracy.
 

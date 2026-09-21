@@ -18,11 +18,11 @@ test("blocking denial, safety chart filtering, evidence and mobile layout", asyn
     await page.goto("/");
     await page.getByRole("button", { name: "Safety", exact: true }).click();
     await page.getByRole("button", { name: "Action history", exact: true }).click();
-    await expect(page.getByLabel("Safety evaluation status")).toContainText("Waiting for Anthropic key");
+    await expect(page.getByLabel("Safety evaluation status")).toContainText("Waiting for judge API key");
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     const card = page.locator(".safety-setting-row").filter({ hasText: "Safety test" });
     await page.getByRole("button", { name: "Configure protection for Safety test" }).click();
-    await page.getByLabel("Enable blocking Haiku evaluation").check();
+    await page.getByLabel("Enable blocking judge evaluation").check();
     await expect(page.getByRole("dialog")).toContainText("Only a valid allow verdict");
     await page.getByRole("button", { name: "Enable live hooks", exact: true }).click();
     await expect(card).toContainText("Blocking configured");

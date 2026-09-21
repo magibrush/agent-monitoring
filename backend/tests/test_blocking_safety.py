@@ -153,5 +153,5 @@ def test_legacy_list_type_failure_is_identifiable(monkeypatch):
             return io.BytesIO(json.dumps(response).encode())
     monkeypatch.setattr(judge.urllib.request, "build_opener", lambda *_: Opener())
     with pytest.raises(judge.JudgeError) as error:
-        judge.evaluate(SimpleNamespace(model="test", snapshot={}, rules={}), "sk-ant-test-only")
+        judge.evaluate(SimpleNamespace(model="claude-haiku-4-5-20251001", snapshot={}, rules={}), "sk-ant-test-only")
     assert error.value.diagnostics["validation_errors"] == [{"field": "evidence", "type": "list_type"}, {"field": "missing_context", "type": "list_type"}]

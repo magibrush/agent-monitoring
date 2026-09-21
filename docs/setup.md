@@ -71,7 +71,7 @@ Monitoring reads source transcripts without modifying them. It does not install 
 
 ## Optional Anthropic credentials
 
-The current judge and incident analysis use `claude-haiku-4-5-20251001`. Live evaluation needs an Anthropic API key with model access and available API credit/quota. An OpenAI API key is not used by Relay.
+The current judge and incident analysis use `claude-haiku-4-5-20251001`. Live evaluation needs an Anthropic API key with model access and available API credit/quota. Anthropic is the default and recommended provider. OpenAI is also available as an untested alternative.
 
 Choose one configuration method:
 
@@ -83,7 +83,7 @@ Do not add actual keys to documentation or commits. `.secrets/`, `.env` files, a
 
 Without credentials, model-dependent jobs wait locally; a blocking request still has a deadline and cannot continue just because the key is missing. Deterministic policy paths and explicit debug simulation are separate from model evaluation. Use scripted Lab mode for a predictable key-free demo.
 
-Live safety evaluation sends the proposed action and selected bounded conversation context to Anthropic. Incident analysis sends its selected evidence. Limited redaction is applied, but arbitrary sensitive text can remain. Calls incur API charges; usage varies with context, attempts, and incident analysis. Scripted Lab runs make no provider calls.
+Live safety evaluation sends the proposed action and selected bounded conversation context to the configured judge provider. Incident analysis sends its selected evidence. Limited redaction is applied, but arbitrary sensitive text can remain. Calls incur API charges; usage varies with context, attempts, and incident analysis. Scripted Lab runs make no provider calls.
 
 ## Optional live hooks and blocking
 
@@ -115,9 +115,27 @@ Open **http://127.0.0.1:5173**. Vite proxies `/api` to the backend. The API's po
 | No sessions after connecting | Check the selected integration, source path, connection error, and **Check source**. Start a new session and verify the agent wrote a transcript. |
 | CLI sessions appear missing | Check `CODEX_HOME`, Desktop versus CLI provenance, and whether the path is accessible to the backend. |
 | Judge remains waiting | Check worker logs and credentials; environment credentials override the file. |
-| Authentication, quota, or model error | Check Anthropic API access and quota. Use scripted Lab mode while resolving provider setup. |
+| Authentication, quota, or model error | Check the configured judge provider API access and quota. Use scripted Lab mode while resolving provider setup. |
 | Hook shows no activity | Restart the agent, trust the handler where required, and check **Last received** after a harmless tool call. |
 | Blocking action expires | Check API and workers, then inspect the request's timing/error evidence. Expired approvals cannot release an old request. |
 | Browser tests cannot start | Build first, install Playwright Chromium, and use an unused `RELAY_E2E_PORT`; see [testing](testing.md). |
 
 Local state defaults to `data/monitor.db`; Lab artifacts live under `data/lab/`. Back up a database with the application and workers stopped. Do not publish databases, hook queues, settings backups, or screenshots of private conversations. This local app is not designed to be exposed on a public interface.
+
+## Optional OpenAI credentials (untested)
+
+OpenAI can power both safety judgments and incident analysis. **Live OpenAI integration and verdict quality have not been tested; Anthropic is recommended.** Offline tests use mocked responses and do not establish live compatibility.
+
+Before starting the API, worker, or live Lab, set the same configuration in each process. In PowerShell:
+
+```powershell
+$env:RELAY_JUDGE_PROVIDER = "openai"
+```
+
+Create `.secrets/openai.key` and paste only your OpenAI API key into it. Alternatively, set `OPENAI_API_KEY` through your local secret manager (takes precedence), or set `RELAY_OPENAI_KEY_FILE` to another key file. Workers reread key files automatically. Environment changes require restarting the API and workers. Keys are never returned to the browser.
+
+The default OpenAI model is `gpt-4.1`. Override it with `RELAY_JUDGE_MODEL`, using an OpenAI model supporting Responses API function calling. Requests force a structured assessment and disable response storage (`store=false`); returned tools are never executed. Existing timeouts, local validation and fail-closed gate behavior still apply. Verify model access, verdict quality and latency before relying on this option.
+
+Action context and incident evidence go to OpenAI when selected and incur API charges. Limited secret redaction is not comprehensive. There is no automatic provider fallback. Switch after queued work has drained: queued judgments retain their model and fail if it belongs to the other provider. To return to Anthropic, set `RELAY_JUDGE_PROVIDER=anthropic`, remove any OpenAI `RELAY_JUDGE_MODEL` override, and restart both processes.
+
+API format: [OpenAI Responses API](https://developers.openai.com/api/docs/guides/text).

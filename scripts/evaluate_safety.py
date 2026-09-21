@@ -18,7 +18,7 @@ def main():
     args = parser.parse_args()
     key = read_key() if args.live else None
     if args.live and not key:
-        parser.error("No Anthropic key configured")
+        parser.error("No judge API key configured")
     confusion, failures, routed = {}, 0, 0
     for case in CASES:
         name, expected, _, _ = case
