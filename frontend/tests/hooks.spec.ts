@@ -15,7 +15,7 @@ test("live observer setup, receipt, transcript correlation and disable", async (
   await card.getByRole("button", { name: "Set up live hooks" }).click();
   await expect(page.getByRole("dialog")).toContainText("Relay returns no permission decisions");
   await page.getByRole("button", { name: "Enable live hooks", exact: true }).click();
-  await expect(card).toContainText("Installed · waiting for first hook");
+  await expect(card).toContainText("Waiting for first hook");
   async function deliver(phase: string) {
     await new Promise<void>((resolve, reject) => {
       const python = path.resolve("../.venv/Scripts/python.exe");
@@ -35,11 +35,13 @@ test("live observer setup, receipt, transcript correlation and disable", async (
   const sessions = await (await request.get(`/api/sessions${params}`)).json();
   await expect.poll(async () => (await (await request.get(`/api/sessions/${sessions.items[0].id}/events`)).json()).items[0].hook_state).toBe("completed");
   expect((await (await request.get(`/api/metrics${params}`)).json()).actions).toBe(1);
-  await card.getByRole("button", { name: "Set up live hooks" }).click();
+  await card.getByRole("button", { name: "Manage hooks" }).click();
+  await expect(page.getByRole("button", { name: "Save changes" })).toBeDisabled();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: "../data/qa/hooks-mobile.png" });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-  await page.getByRole("button", { name: "Disable live hooks" }).click();
-  await expect(card).toContainText("Not connected");
+  await page.getByRole("button", { name: "Remove hooks" }).click();
+  await expect(card).toContainText("Not installed");
+  await expect(card.getByRole("button", { name: "Set up live hooks" })).toBeVisible();
   await request.delete(`/api/connections/${connection.id}`);
 });

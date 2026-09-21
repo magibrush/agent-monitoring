@@ -293,6 +293,11 @@ def make_engine(url=None):
         def configure(db, _):
             db.execute("PRAGMA foreign_keys=ON")
             db.execute("PRAGMA journal_mode=WAL")
+        @event.listens_for(engine, "checkout")
+        def reset_busy_timeout(db, _record, _proxy):
+            # PRAGMAs survive transaction rollback and pool check-in. The
+            # incident collector temporarily uses 100ms, which must not leak
+            # into subsequent transcript syncs or gate operations.
             db.execute("PRAGMA busy_timeout=30000")
     return engine
 

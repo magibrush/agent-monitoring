@@ -94,6 +94,7 @@ export function DemoBanner({ onStart }: { onStart: () => void }) {
   const [bounds, setBounds] = useState<Bounds | null>(null);
   const [coachHeight, setCoachHeight] = useState(260);
   const [minimized, setMinimized] = useState(false);
+  const [viewingEvidence, setViewingEvidence] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [missing, setMissing] = useState(false);
@@ -155,7 +156,14 @@ export function DemoBanner({ onStart }: { onStart: () => void }) {
     }, 5000);
     const measure = () => {
       if (disposed) return;
-      const element = document.querySelector<HTMLElement>(current.target);
+      const element = (current.closeIncident && document.querySelector<HTMLElement>("#incident-evidence-preview")) || document.querySelector<HTMLElement>(current.target);
+      setViewingEvidence(element?.id === "incident-evidence-preview");
+      // Tour steps can point into progressively disclosed evidence.
+      let ancestor = element?.parentElement;
+      while (ancestor) {
+        if (ancestor instanceof HTMLDetailsElement && !ancestor.open) ancestor.open = true;
+        ancestor = ancestor.parentElement;
+      }
       if (!element || !element.getClientRects().length) {
         target.current = null;
         setBounds(null);
@@ -170,7 +178,7 @@ export function DemoBanner({ onStart }: { onStart: () => void }) {
           inline: "nearest",
           behavior: "instant",
         });
-        if (current.click) element.focus({ preventScroll: true });
+        if (current.click || element.id === "incident-evidence-preview") element.focus({ preventScroll: true });
         else coach.current?.focus({ preventScroll: true });
       }
       const box = element.getBoundingClientRect();
@@ -212,6 +220,10 @@ export function DemoBanner({ onStart }: { onStart: () => void }) {
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
     const clicked = (event: MouseEvent) => {
+      if ((event.target as Element).closest('#incident-evidence-preview a[href]')) {
+        finish();
+        return;
+      }
       if (current.click && target.current?.contains(event.target as Node)) {
         // Advance after the real application's click handler updates its state.
         window.setTimeout(() => {
@@ -387,11 +399,12 @@ export function DemoBanner({ onStart }: { onStart: () => void }) {
                     {minimized ? "Show guide" : "Read conversation"}
                   </button>
                 )}
+                {viewingEvidence && <button onClick={() => document.querySelector<HTMLButtonElement>('[aria-label="Close evidence preview"]')?.click()}>Back to explanation</button>}
                 <button aria-label="Exit guided tour" onClick={finish}>
                   <X size={18} />
                 </button>
               </div>
-              <div hidden={minimized}>
+              <div hidden={minimized || viewingEvidence}>
                 <h2>{current.title}</h2>
                 <p id="tour-description">{current.text}</p>
                 {bounds?.offscreen && (

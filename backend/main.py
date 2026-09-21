@@ -1,6 +1,9 @@
 import asyncio
 import logging
 import threading
+import sqlite3
+import time
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -10,6 +13,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, func, delete, or_
+from sqlalchemy.exc import OperationalError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from backend.connectors import sync_connection, inspect_source, source_root
@@ -23,29 +27,68 @@ hook_lock = threading.RLock()
 logger = logging.getLogger(__name__)
 
 
+def database_busy(exc):
+    """Only SQLite lock contention is safe to retry as a transient failure."""
+    return (isinstance(exc, OperationalError) and
+            isinstance(exc.orig, sqlite3.OperationalError) and
+            (getattr(exc.orig, "sqlite_errorcode", 0) & 0xff) in
+            (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED))
+
+
 def synchronize(connection_id=None):
     if runtime.DEMO:
         return
-    with lock, SessionLocal() as db:
-        query = select(Connection).where(Connection.provider.in_(PROVIDERS), Connection.enabled.is_(True))
-        if connection_id:
-            query = query.where(Connection.id == connection_id)
-        ids = list(db.scalars(query.with_only_columns(Connection.id)))
+    with lock:
+        with SessionLocal() as db:
+            query = select(Connection).where(Connection.provider.in_(PROVIDERS), Connection.enabled.is_(True))
+            if connection_id:
+                query = query.where(Connection.id == connection_id)
+            ids = list(db.scalars(query.with_only_columns(Connection.id)))
         for id_ in ids:
-            connection = db.get(Connection, id_)
-            try:
-                connection.error = None
-                sync_connection(db, connection, batch_size=100)
-                connection.status = "watching"
-                connection.last_sync = now()
-                db.commit()
-            except Exception as exc:
-                db.rollback()
-                connection = db.get(Connection, id_)
-                connection.status = "error"
-                connection.error = str(exc) if isinstance(exc, (ValueError, OSError)) else "Sync failed. See backend logs."
-                db.commit()
-                logger.warning("Connector sync failed for %s: %s", id_, type(exc).__name__)
+            for attempt in range(3):
+                with SessionLocal() as db:
+                    try:
+                        connection = db.get(Connection, id_)
+                        if connection is None or not connection.enabled:
+                            break
+                        # Do not acquire a write lock just to clear an old error
+                        # before scanning the source files.
+                        sync_connection(db, connection, batch_size=100)
+                        connection.error = None
+                        connection.status = "watching"
+                        connection.last_sync = now()
+                        db.commit()
+                        break
+                    except Exception as exc:
+                        db.rollback()
+                        busy = database_busy(exc)
+                        if busy and attempt < 2:
+                            logger.info("Sync database busy for %s; retrying (%s/2)", id_, attempt + 1)
+                        else:
+                            # Include the failing code location without dumping SQL
+                            # parameters, which may contain private transcript text.
+                            logger.error("Connector sync failed for %s: %s (sqlite=%s)\n%s",
+                                         id_, type(exc).__name__,
+                                         getattr(getattr(exc, "orig", None), "sqlite_errorname", "n/a"),
+                                         "".join(traceback.format_tb(exc.__traceback__)))
+                            connection = db.get(Connection, id_)
+                            if connection is None:
+                                break
+                            connection.status = "error"
+                            connection.error = ("Database is busy. Sync will retry automatically." if busy else
+                                                str(exc) if isinstance(exc, (ValueError, OSError)) else
+                                                f"Sync failed ({type(exc).__name__}). See backend logs.")
+                            try:
+                                db.commit()
+                            except OperationalError as status_error:
+                                db.rollback()
+                                if not database_busy(status_error):
+                                    raise
+                                logger.warning("Database still busy; could not save sync status for %s. Retrying next cycle.", id_)
+                            break
+                # Release the failed transaction before backing off. Checkpoints
+                # from committed batches let a retry resume without duplicates.
+                time.sleep(0.1 * (attempt + 1))
 
 
 @asynccontextmanager
