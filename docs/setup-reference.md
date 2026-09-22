@@ -55,6 +55,7 @@ Use **one Uvicorn worker**. Do not run these processes alongside the combined la
 | Symptom | Check |
 | --- | --- |
 | Runtime missing or unsupported | Check `uv --version`, `node --version`, and `npm --version`; update and reopen your terminal. The launchers provision Python through uv. |
+| Windows: `.venv` is in use or `uv` cannot remove `.venv/Lib` (Access is denied) | Stop the API, safety workers, and Lab with **Ctrl+C** in their terminals, then rerun `powershell -ExecutionPolicy Bypass -File scripts/start.ps1`. The launcher requests Python 3.11; uv may need to replace an environment created with another Python version. The Windows launcher reports process IDs using `.venv` before installation. If their terminals are gone, inspect those IDs in Task Manager and end only the corresponding Relay processes, including their Python children. |
 | Missing tables or schema errors | Stop services, back up the database, then run `uv run --locked alembic upgrade head`. |
 | Port 8000 occupied | Stop the duplicate process or change the manual API port. The Vite proxy expects 8000. |
 | No sessions | Use **Check source**; check the profile, integration, and path. Confirm the agent wrote a new transcript. |

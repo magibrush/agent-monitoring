@@ -5,7 +5,10 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+from backend.collection_control import check_interrupted
+
 from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert
 
 from backend.db import ChatSession, Checkpoint, Connection, Event, now
 from backend.normalization import message_content, action_category, session_type
@@ -107,9 +110,14 @@ def content_text(content):
 def get_session(db, connection, external_id, title, time, source):
     session = db.scalar(select(ChatSession).where(ChatSession.connection_id == connection.id, ChatSession.external_id == external_id))
     if session is None:
-        session = ChatSession(connection_id=connection.id, external_id=external_id, title=title, created_at=time, updated_at=time, source=source)
-        db.add(session)
-        db.flush()
+        # Hooks and transcript imports may discover the same conversation at
+        # once. Let SQLite arbitrate creation without aborting either collector.
+        db.execute(insert(ChatSession).values(
+            connection_id=connection.id, external_id=external_id, title=title,
+            created_at=time, updated_at=time, source=source,
+        ).on_conflict_do_nothing(index_elements=["connection_id", "external_id"]))
+        session = db.scalar(select(ChatSession).where(
+            ChatSession.connection_id == connection.id, ChatSession.external_id == external_id))
     return session
 
 
@@ -193,6 +201,7 @@ def sync_codex(db, connection, batch_size=None):
                     continue
     unknown = 0
     for path in transcript_paths(root):
+        check_interrupted(db)
         checkpoint = db.scalar(select(Checkpoint).where(Checkpoint.connection_id == connection.id, Checkpoint.path == str(path)))
         with path.open("rb") as stream:
             metadata, prefix = read_metadata(stream, path)
@@ -234,6 +243,7 @@ def sync_codex(db, connection, batch_size=None):
             checkpoint.session_id = session.id
             batch_count = 0
             for offset, next_offset, record in complete_records(stream, path, checkpoint.offset):
+                check_interrupted(db)
                 payload = record.get("payload", {})
                 if not isinstance(payload, dict):
                     raise ValueError(f"Invalid JSON record in {path.name} at byte {offset}")

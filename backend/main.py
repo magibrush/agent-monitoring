@@ -5,6 +5,7 @@ import sqlite3
 import time
 import traceback
 from contextlib import asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal
 
@@ -21,6 +22,7 @@ from backend.providers import PROVIDERS, default_path
 from backend.db import ChatSession, Checkpoint, Event, HookObservation, Connection, SafetyEvaluation, SafetyAttempt, ROOT, SessionLocal, now
 from backend import hooks
 from backend import runtime
+from backend.collection_control import collection, interrupt_collection, check_interrupted, ImportInterrupted
 
 lock = threading.RLock()
 hook_lock = threading.RLock()
@@ -38,57 +40,71 @@ def database_busy(exc):
 def synchronize(connection_id=None):
     if runtime.DEMO:
         return
-    with lock:
+    if connection_id is None:
         with SessionLocal() as db:
-            query = select(Connection).where(Connection.provider.in_(PROVIDERS), Connection.enabled.is_(True))
-            if connection_id:
-                query = query.where(Connection.id == connection_id)
-            ids = list(db.scalars(query.with_only_columns(Connection.id)))
-        for id_ in ids:
-            for attempt in range(3):
-                with SessionLocal() as db:
-                    try:
-                        connection = db.get(Connection, id_)
-                        if connection is None or not connection.enabled:
-                            break
-                        # Do not acquire a write lock just to clear an old error
-                        # before scanning the source files.
-                        sync_connection(db, connection, batch_size=100)
-                        connection.error = None
-                        connection.status = "watching"
-                        connection.last_sync = now()
-                        db.commit()
+            ids = list(db.scalars(select(Connection.id).where(
+                Connection.provider.in_(PROVIDERS), Connection.enabled.is_(True))))
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="import") as executor:
+            list(executor.map(synchronize, ids))
+        return
+    id_ = connection_id
+    state = collection(id_)
+    # Repeated requests must not queue duplicate imports for the same source.
+    if state.stop.is_set() or not state.lock.acquire(blocking=False):
+        return False
+    try:
+        for attempt in range(3):
+            with SessionLocal() as db:
+                db.info["import_stop"] = state.stop
+                try:
+                    check_interrupted(db)
+                    connection = db.get(Connection, id_)
+                    if connection is None or not connection.enabled:
                         break
-                    except Exception as exc:
-                        db.rollback()
-                        busy = database_busy(exc)
-                        if busy and attempt < 2:
-                            logger.info("Sync database busy for %s; retrying (%s/2)", id_, attempt + 1)
-                        else:
-                            # Include the failing code location without dumping SQL
-                            # parameters, which may contain private transcript text.
-                            logger.error("Connector sync failed for %s: %s (sqlite=%s)\n%s",
-                                         id_, type(exc).__name__,
-                                         getattr(getattr(exc, "orig", None), "sqlite_errorname", "n/a"),
-                                         "".join(traceback.format_tb(exc.__traceback__)))
-                            connection = db.get(Connection, id_)
-                            if connection is None:
-                                break
-                            connection.status = "error"
-                            connection.error = ("Database is busy. Sync will retry automatically." if busy else
-                                                str(exc) if isinstance(exc, (ValueError, OSError)) else
-                                                f"Sync failed ({type(exc).__name__}). See backend logs.")
-                            try:
-                                db.commit()
-                            except OperationalError as status_error:
-                                db.rollback()
-                                if not database_busy(status_error):
-                                    raise
-                                logger.warning("Database still busy; could not save sync status for %s. Retrying next cycle.", id_)
+                    # Do not acquire a write lock just to clear an old error
+                    # before scanning the source files.
+                    sync_connection(db, connection, batch_size=100)
+                    check_interrupted(db)
+                    connection.error = None
+                    connection.status = "watching"
+                    connection.last_sync = now()
+                    db.commit()
+                    break
+                except ImportInterrupted:
+                    db.rollback()
+                    break
+                except Exception as exc:
+                    db.rollback()
+                    busy = database_busy(exc)
+                    if busy and attempt < 2:
+                        logger.info("Sync database busy for %s; retrying (%s/2)", id_, attempt + 1)
+                    else:
+                        # Include the failing code location without dumping SQL
+                        # parameters, which may contain private transcript text.
+                        logger.error("Connector sync failed for %s: %s (sqlite=%s)\n%s",
+                                     id_, type(exc).__name__,
+                                     getattr(getattr(exc, "orig", None), "sqlite_errorname", "n/a"),
+                                     "".join(traceback.format_tb(exc.__traceback__)))
+                        connection = db.get(Connection, id_)
+                        if connection is None:
                             break
-                # Release the failed transaction before backing off. Checkpoints
-                # from committed batches let a retry resume without duplicates.
-                time.sleep(0.1 * (attempt + 1))
+                        connection.status = "error"
+                        connection.error = ("Database is busy. Sync will retry automatically." if busy else
+                                            str(exc) if isinstance(exc, (ValueError, OSError)) else
+                                            f"Sync failed ({type(exc).__name__}). See backend logs.")
+                        try:
+                            db.commit()
+                        except OperationalError as status_error:
+                            db.rollback()
+                            if not database_busy(status_error):
+                                raise
+                            logger.warning("Database still busy; could not save sync status for %s. Retrying next cycle.", id_)
+                        break
+            # Release the failed transaction before backing off. Checkpoints
+            # from committed batches let a retry resume without duplicates.
+            time.sleep(0.1 * (attempt + 1))
+    finally:
+        state.lock.release()
 
 
 @asynccontextmanager
@@ -279,10 +295,10 @@ class ConnectionUpdate(BaseModel):
 
 @app.delete("/api/connections/{id_}")
 def delete_connection(id_: str):
-    # Same lock as collection: no batch can recreate records after removal.
+    # Stop this import before deleting so it cannot recreate imported records.
     # All database deletions commit together; source files are never opened.
     from backend.incidents import lock as incident_lock
-    with lock, incident_lock, SessionLocal() as db:
+    with interrupt_collection(id_), lock, hook_lock, incident_lock, SessionLocal() as db:
         connection = db.get(Connection, id_)
         if not connection or connection.provider not in PROVIDERS:
             raise HTTPException(404, "Connection not found.")
@@ -340,7 +356,7 @@ def update_hooks(id_: str, body: HookUpdate):
 
 @app.patch("/api/connections/{id_}")
 def update_connection(id_: str, body: ConnectionUpdate):
-    with lock, SessionLocal() as db:
+    with interrupt_collection(id_), SessionLocal() as db:
         connection = db.get(Connection, id_)
         if not connection or connection.provider not in PROVIDERS:
             raise HTTPException(404, "Connection not found.")
@@ -358,9 +374,12 @@ def sync(id_: str):
             raise HTTPException(404, "Connection not found.")
         if not c.enabled:
             raise HTTPException(409, "Enable the connection to sync.")
-    synchronize(id_)
+    completed = synchronize(id_)
     with SessionLocal() as db:
-        return serialize(db.get(Connection, id_))
+        connection = db.get(Connection, id_)
+        if connection is None:
+            raise HTTPException(404, "Connection not found.")
+        return {**serialize(connection), **({"status": "syncing"} if completed is False else {})}
 
 
 @app.get("/api/safety")

@@ -19,7 +19,7 @@ Rules can cover all connections, including future ones, or selected connections.
 
 | Activity | Matches |
 | --- | --- |
-| Read files | Supported structured reads; optional folders, extensions, and filename patterns |
+| Read files | Supported structured reads; restrictive filename rules also cover visible shell references and Glob/Grep filename searches |
 | Write or edit files | Supported writes, edits, and patches; resource filters require a known file target |
 | Run shell commands | Known shell tools, including Bash, PowerShell, exec, and exec_command |
 | Detected Git pushes | Visible Git push signals in known shell commands |
@@ -30,6 +30,8 @@ Rules can cover all connections, including future ones, or selected connections.
 **More conditions** includes literal command text and exact tool names. Filename patterns match basenames (`.env.*`, `*.pem`), not full paths or regular expressions. Extensions and patterns combine with AND; alternatives within a list combine with OR.
 
 For direct file operations, folders match the target file; restrictive rules check lexical and resolved paths. For shell commands, folders match the starting directory, not every affected path. Git, network, and credential detection can match quoted text or miss aliases, scripts, encoded commands, and unknown tool formats. Use an all-shell Ask me rule if every shell command needs review.
+
+Read and sensitive-file rules with filename conditions also match visible filenames in shell commands and filename patterns supplied to `Glob` or `Grep`. This applies to Block, Ask me, and Send to judge, never automatic approval. For example, the secrets preset covers `cat .env`, `Get-Content .env.local`, `find ... -name ".env*"`, and `Glob` with `**/.env*`. Detection is deliberately conservative: `echo .env` can match too, while computed or encoded filenames may be missed. Discovery folders use the supplied search path (or working directory); shell folders still use the working directory. Existing active rules gain this coverage after the backend restarts; historical assessments are unchanged.
 
 ### Automatic file-read approval
 
