@@ -3,6 +3,8 @@ import hashlib
 import json
 import logging
 
+from backend.collection_control import check_interrupted
+
 from sqlalchemy import select
 
 from backend.connectors import (MAX_RECORD_BYTES, add_event, complete_records,
@@ -61,6 +63,7 @@ def inspect_claude(path):
 def sync_claude(db, connection, batch_size=None):
     count = 0
     for path in transcript_paths(source_root(connection.path, "claude_code")):
+        check_interrupted(db)
         checkpoint = db.scalar(select(Checkpoint).where(
             Checkpoint.connection_id == connection.id, Checkpoint.path == str(path)))
         with path.open("rb") as stream:
@@ -86,6 +89,7 @@ def sync_claude(db, connection, batch_size=None):
             checkpoint.prefix_hash = prefix
             batch_count = 0
             for offset, next_offset, record in complete_records(stream, path, checkpoint.offset):
+                check_interrupted(db)
                 role = record.get("type")
                 message = record.get("message")
                 if role in {"user", "assistant"} and isinstance(message, dict):

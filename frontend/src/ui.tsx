@@ -55,7 +55,7 @@ export function Provider({ name }: { name: string }) {
         {name.startsWith("codex") ? "Codex" : name === "claude_code" ? "Claude" : name}
       </span>
       <span className="provider-caption" aria-hidden="true">
-        {name === "codex" ? "Desktop" : name === "codex_cli" ? "CLI" : name === "claude_code" ? "Code" : name}
+        {name === "codex" ? "Desktop" : name === "codex_cli" ? "CLI" : name === "claude_code" ? "CLI" : name}
       </span>
     </span>
   );
@@ -467,7 +467,11 @@ export function Connections({
   add: () => void;
   removed: (id: string) => void;
 }) {
-  const [busy, setBusy] = useState("");
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  function markBusy(key: string, value: boolean) {
+    setBusy(previous => ({ ...previous, [key]: value }));
+  }
   const [error, setError] = useState("");
   const [diagnostics, setDiagnostics] = useState<Record<string, string>>({});
   const [deleting, setDeleting] = useState<Connection | null>(null);
@@ -475,7 +479,7 @@ export function Connections({
   const [hookConnection, setHookConnection] = useState<Connection | null>(null);
   async function removeConnection() {
     if (!deleting) return;
-    setBusy(deleting.id);
+    setDeleteBusy(true);
     setDeleteError("");
     try {
       await api(`/connections/${deleting.id}`, { method: "DELETE" });
@@ -488,11 +492,12 @@ export function Connections({
     } catch (e) {
       setDeleteError((e as Error).message);
     } finally {
-      setBusy("");
+      setDeleteBusy(false);
     }
   }
   async function run(c: Connection, action: "sync" | "toggle" | "check") {
-    setBusy(c.id);
+    const key = `${c.id}:${action}`;
+    markBusy(key, true);
     setError("");
     try {
       if (action === "check") {
@@ -517,13 +522,13 @@ export function Connections({
           method: "POST",
         });
         if (result.error) throw new Error(result.error);
-        notify(`${providerLabel(c.provider)} sync completed.`);
+        notify(result.status === "syncing" ? `${providerLabel(c.provider)} sync is already running.` : result.status === "paused" ? "Connection paused." : `${providerLabel(c.provider)} sync completed.`);
       }
       refresh();
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setBusy("");
+      markBusy(key, false);
     }
   }
   return (
@@ -567,22 +572,22 @@ export function Connections({
             <div className="connection-actions">
               <button
                 className="secondary"
-                disabled={busy === c.id}
+                disabled={busy[`${c.id}:check`]}
                 onClick={() => run(c, "check")}
               >
                 Check source
               </button>
               <button
                 className="secondary"
-                disabled={busy === c.id || !c.enabled}
+                disabled={busy[`${c.id}:sync`] || !c.enabled}
                 onClick={() => run(c, "sync")}
               >
                 <RefreshCw size={15} />
-                {busy === c.id ? "Working…" : "Sync now"}
+                {busy[`${c.id}:sync`] ? "Syncing…" : "Sync now"}
               </button>
               <button
                 className="secondary"
-                disabled={busy === c.id}
+                disabled={busy[`${c.id}:toggle`]}
                 onClick={() => run(c, "toggle")}
               >
                 {c.enabled ? <Pause size={15} /> : <Play size={15} />}
@@ -590,7 +595,7 @@ export function Connections({
               </button>
               <button
                 className="secondary delete-connection"
-                disabled={!!busy}
+                disabled={deleteBusy}
                 onClick={() => {
                   setDeleteError("");
                   setDeleting(c);
@@ -613,7 +618,7 @@ export function Connections({
       {deleting && (
         <Modal
           close={() => {
-            if (!busy) setDeleting(null);
+            if (!deleteBusy) setDeleting(null);
           }}
         >
           <div className="modal-heading">
@@ -646,17 +651,17 @@ export function Connections({
           <div className="modal-footer delete-dialog-footer">
             <button
               className="secondary"
-              disabled={!!busy}
+              disabled={deleteBusy}
               onClick={() => setDeleting(null)}
             >
               Cancel
             </button>
             <button
               className="danger-button"
-              disabled={!!busy}
+              disabled={deleteBusy}
               onClick={() => void removeConnection()}
             >
-              {busy ? "Deleting…" : "Delete connection"}
+              {deleteBusy ? "Deleting…" : "Delete connection"}
             </button>
           </div>
         </Modal>

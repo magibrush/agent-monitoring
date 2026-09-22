@@ -4,7 +4,7 @@
     "activity": "read",
     "effect": "deny",
     "icon": "ShieldCheck",
-    "detail": "Block direct reads of environment files and private keys, including .env.example.",
+    "detail": "Block direct reads, visible shell references, and Glob/Grep filename searches for environment files and private keys, including .env.example.",
     "example": ".env, .env.*, *.pem, id_rsa, id_ed25519",
     "conditions": {
       "filenames": [

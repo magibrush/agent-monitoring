@@ -8,7 +8,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from backend.policy_actions import normalize, filename_matches
+from backend.policy_actions import normalize, filename_matches, reference_matches
 from sqlalchemy import select, update
 
 from backend.db import PolicyVersion, PolicyState, PolicyChange, Connection, ChatSession, Event, SafetyEvaluation, now
@@ -179,15 +179,24 @@ def editable_rule(rule):
 def rule_matches(rule, facts, connection_id, payload):
     if not rule["enabled"] or rule.get("expires_at") and rule["expires_at"] <= now(): return False
     if rule["connection_ids"] and connection_id not in rule["connection_ids"]: return False
-    if rule["activity"] not in facts["activities"]: return False
+    # Restrictive filename rules cover visible shell/discovery references too.
+    # These signals must never qualify a command for automatic approval.
+    reference_match = (rule["effect"] != "allow" and rule["activity"] in {"read", "credentials"}
+                       and bool(rule["filenames"]) and any(
+                           reference_matches(name, rule["filenames"]) and
+                           (not rule["extensions"] or Path(name).suffix.lower() in rule["extensions"])
+                           for name in facts.get("filename_references", [])))
+    if rule["activity"] not in facts["activities"] and not reference_match: return False
     if rule["activity"] == "tool" and not rule["tool_name"]: return False
     if rule["tool_name"] and rule["tool_name"] != facts["tool"]: return False
     if rule["command_contains"] and rule["command_contains"].casefold() not in facts["command"].casefold(): return False
     file_scope = bool(facts["paths"])
     targets = facts["paths"] if file_scope else [] if facts["activities"] & {"read", "write"} else [facts["cwd"]] if facts["cwd"] is not None else []
+    if reference_match and facts.get("discovery_root") is not None:
+        targets = [facts["discovery_root"]]
     if rule["roots"] and not any(p.is_relative_to(Path(root)) for p in targets for root in rule["roots"]): return False
     if rule["extensions"] or rule["filenames"]:
-        if not any((not rule["extensions"] or p.suffix.lower() in rule["extensions"]) and filename_matches(p, rule["filenames"]) for p in facts["paths"]): return False
+        if not reference_match and not any((not rule["extensions"] or p.suffix.lower() in rule["extensions"]) and filename_matches(p, rule["filenames"]) for p in facts["paths"]): return False
     if rule["effect"] == "allow":
         # Reuse the proven file-read approval boundary, including strict tool arguments.
         for root in rule["roots"]:

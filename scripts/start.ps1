@@ -1,6 +1,17 @@
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $projectRoot
+# Windows cannot replace a virtual environment while its Python processes are running.
+# Check before uv sync, which may otherwise partially remove the environment.
+$venvRoot = Join-Path $projectRoot '.venv'
+$venvPrefix = $venvRoot + [IO.Path]::DirectorySeparatorChar
+$venvProcesses = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.Path -and $_.Path.StartsWith($venvPrefix, [StringComparison]::OrdinalIgnoreCase)
+})
+if ($venvProcesses.Count -gt 0) {
+    $processIds = ($venvProcesses | ForEach-Object { $_.Id }) -join ', '
+    throw "Relay's .venv is in use (process IDs: $processIds). Stop the API, safety workers, and Lab with Ctrl+C in their terminals, then rerun scripts/start.ps1. See docs/setup-reference.md#troubleshooting."
+}
 $bundledNode = Join-Path $env:USERPROFILE '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin'
 if (Test-Path (Join-Path $bundledNode 'node.exe')) { $env:PATH = "$bundledNode;$env:PATH" }
 $env:UV_CACHE_DIR = Join-Path $projectRoot '.uv-cache'
@@ -21,7 +32,7 @@ $previousEnvironment = $env:UV_PROJECT_ENVIRONMENT
 try {
     $env:UV_PROJECT_ENVIRONMENT = Join-Path $projectRoot '.venv'
     & uv sync --locked --python 3.11
-    if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed. If uv reports Access is denied in .venv, stop all processes using this environment (including Lab and safety workers), then retry. See docs/setup-reference.md#troubleshooting.' }
 } finally { $env:UV_PROJECT_ENVIRONMENT = $previousEnvironment }
 if (-not (Test-Path '.secrets')) { New-Item -ItemType Directory -Path '.secrets' | Out-Null }
 if (-not (Test-Path '.secrets/anthropic.key')) { New-Item -ItemType File -Path '.secrets/anthropic.key' | Out-Null }

@@ -4,7 +4,7 @@ One local dashboard for Codex Desktop, Codex CLI, and Claude Code. Browse agent 
 
 ## Video walkthrough
 
-*Video coming soon.*
+[![Watch the Relay video walkthrough](https://img.youtube.com/vi/U9_ka0Od-h0/hqdefault.jpg)](https://www.youtube.com/watch?v=U9_ka0Od-h0)
 
 ## Run it yourself
 
